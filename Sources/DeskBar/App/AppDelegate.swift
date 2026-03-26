@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowManager: WindowManager?
     private var permissionsManager: PermissionsManager?
     private var settings: TaskbarSettings?
+    private var blacklistManager: BlacklistManager?
     private var settingsWindowController: SettingsWindowController?
     private var contentView: TaskbarContentView?
     private var statusItem: NSStatusItem?
@@ -15,16 +16,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = TaskbarSettings()
         self.settings = settings
 
+        let blacklistManager = BlacklistManager()
+        self.blacklistManager = blacklistManager
+
         let permissions = PermissionsManager()
         permissionsManager = permissions
 
-        let wm = WindowManager()
+        let wm = WindowManager(blacklistManager: blacklistManager)
         windowManager = wm
 
         let contentView = TaskbarContentView(
             windowManager: wm,
             permissionsManager: permissions,
-            settings: settings
+            settings: settings,
+            blacklistManager: blacklistManager
         )
         self.contentView = contentView
 
@@ -36,7 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         taskbarPanel.orderFrontRegardless()
         panel = taskbarPanel
 
-        settingsWindowController = SettingsWindowController(settings: settings)
+        settingsWindowController = SettingsWindowController(
+            settings: settings,
+            blacklistManager: blacklistManager
+        )
         configureStatusItem()
 
         permissions.$isAccessibilityGranted
