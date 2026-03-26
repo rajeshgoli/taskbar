@@ -1,18 +1,22 @@
 import AppKit
+import Combine
 
 final class TaskbarPanel: NSPanel {
-    private static let taskbarHeight: CGFloat = 44
     private static let bannerHeight: CGFloat = 32
 
     private let permissionsManager: PermissionsManager
+    private let settings: TaskbarSettings
     private let visualEffectView: NSVisualEffectView
     private weak var hostedView: NSView?
+    private var cancellables = Set<AnyCancellable>()
 
-    init(permissionsManager: PermissionsManager) {
+    init(permissionsManager: PermissionsManager, settings: TaskbarSettings) {
         self.permissionsManager = permissionsManager
+        self.settings = settings
 
         let frame = Self.panelFrame(
             isAccessibilityGranted: permissionsManager.isAccessibilityGranted,
+            taskbarHeight: settings.taskbarHeight,
             screen: NSScreen.main ?? NSScreen.screens.first
         )
 
@@ -38,6 +42,13 @@ final class TaskbarPanel: NSPanel {
         visualEffectView.state = .active
         visualEffectView.autoresizingMask = [.width, .height]
         contentView = visualEffectView
+
+        settings.$taskbarHeight
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateFrameForCurrentState(animated: true)
+            }
+            .store(in: &cancellables)
     }
 
     func setContentSubview(_ view: NSView) {
@@ -49,17 +60,24 @@ final class TaskbarPanel: NSPanel {
     }
 
     func updateForAccessibilityPermissionChange() {
+        updateFrameForCurrentState(animated: true)
+    }
+
+    private func updateFrameForCurrentState(animated: Bool) {
         let nextFrame = Self.panelFrame(
             isAccessibilityGranted: permissionsManager.isAccessibilityGranted,
+            taskbarHeight: settings.taskbarHeight,
             screen: screen ?? NSScreen.main ?? NSScreen.screens.first
         )
 
-        setFrame(nextFrame, display: true, animate: true)
+        setFrame(nextFrame, display: true, animate: animated)
         visualEffectView.frame = NSRect(origin: .zero, size: nextFrame.size)
+        hostedView?.frame = visualEffectView.bounds
     }
 
     private static func panelFrame(
         isAccessibilityGranted: Bool,
+        taskbarHeight: CGFloat,
         screen: NSScreen?
     ) -> NSRect {
         guard let screen else {

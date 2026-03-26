@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 
 final class TaskButtonView: NSView {
     private static var activeHoverView: TaskButtonView?
@@ -11,15 +12,16 @@ final class TaskButtonView: NSView {
         case hidden
     }
 
-    private let hoverDelay: TimeInterval = 0.4
+    private let settings: TaskbarSettings
     private let windowInfo: WindowInfo
     private let isAccessibilityAvailable: Bool
     private let activationHandler: (WindowInfo) -> Void
-    private let maxWidth: CGFloat
+    private var hoverDelay: TimeInterval
+    private var maxWidth: CGFloat
     private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let thumbnailPopover = ThumbnailPopover()
+    private let thumbnailPopover: ThumbnailPopover
     private let owningApplication: NSRunningApplication?
     private lazy var windowElement: AXUIElement? = {
         Self.resolveWindowElement(
@@ -31,6 +33,8 @@ final class TaskButtonView: NSView {
     private var trackingAreaRef: NSTrackingArea?
     private var hoverWorkItem: DispatchWorkItem?
     private var thumbnailRequestTask: Task<Void, Never>?
+    private var maxWidthConstraint: NSLayoutConstraint?
+    private var cancellables = Set<AnyCancellable>()
     private var isHovered = false {
         didSet {
             updateBackgroundColor()
@@ -65,7 +69,7 @@ final class TaskButtonView: NSView {
         windowInfo: WindowInfo,
         isActive: Bool,
         isAccessibilityAvailable: Bool,
-        maxWidth: CGFloat = 200,
+        settings: TaskbarSettings,
         accessibilityService: AccessibilityService = AccessibilityService(),
         activationHandler: @escaping (WindowInfo) -> Void
     ) {
@@ -73,12 +77,15 @@ final class TaskButtonView: NSView {
             $0.processIdentifier == windowInfo.pid
         }
 
+        self.settings = settings
         self.windowInfo = windowInfo
         self.isActive = isActive
         self.isAccessibilityAvailable = isAccessibilityAvailable
-        self.maxWidth = maxWidth
+        self.hoverDelay = settings.hoverDelay
+        self.maxWidth = settings.maxTaskWidth
         self.accessibilityService = accessibilityService
         self.activationHandler = activationHandler
+        self.thumbnailPopover = ThumbnailPopover(settings: settings)
         self.owningApplication = owningApplication
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -87,6 +94,7 @@ final class TaskButtonView: NSView {
         layer?.masksToBounds = true
 
         setupSubviews()
+        bindSettings()
         updateAppearance()
     }
 
@@ -105,7 +113,8 @@ final class TaskButtonView: NSView {
 
     override var intrinsicContentSize: NSSize {
         let horizontalPadding: CGFloat = 50
-        let preferredWidth = min(maxWidth, horizontalPadding + titleLabel.intrinsicContentSize.width)
+        let titleWidth = titleLabel.isHidden ? 0 : titleLabel.intrinsicContentSize.width
+        let preferredWidth = min(maxWidth, horizontalPadding + titleWidth)
         return NSSize(width: preferredWidth, height: 32)
     }
 
@@ -178,8 +187,11 @@ final class TaskButtonView: NSView {
         addSubview(iconView)
         addSubview(titleLabel)
 
+        let maxWidthConstraint = widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
+        self.maxWidthConstraint = maxWidthConstraint
+
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth),
+            maxWidthConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -190,6 +202,40 @@ final class TaskButtonView: NSView {
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+    }
+
+    private func bindSettings() {
+        settings.$titleFontSize
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.titleLabel.font = NSFont.systemFont(ofSize: value)
+                self?.invalidateIntrinsicContentSize()
+            }
+            .store(in: &cancellables)
+
+        settings.$maxTaskWidth
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.maxWidth = value
+                self?.maxWidthConstraint?.constant = value
+                self?.invalidateIntrinsicContentSize()
+            }
+            .store(in: &cancellables)
+
+        settings.$showTitles
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.titleLabel.isHidden = !value
+                self?.invalidateIntrinsicContentSize()
+            }
+            .store(in: &cancellables)
+
+        settings.$hoverDelay
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.hoverDelay = value
+            }
+            .store(in: &cancellables)
     }
 
     private func resolvedTitle() -> String {
