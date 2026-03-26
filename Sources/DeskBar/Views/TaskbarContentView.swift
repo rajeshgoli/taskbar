@@ -1,9 +1,14 @@
 import AppKit
+import ApplicationServices
 import Combine
+import Darwin
 
 final class TaskbarContentView: NSView {
+    private typealias AXUIElementGetWindowFunc = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+
     private let windowManager: WindowManager
     private let permissionsManager: PermissionsManager
+    private let axGetWindow: AXUIElementGetWindowFunc?
 
     private let rootStackView = NSStackView()
     private let bannerButton = NSButton()
@@ -19,6 +24,11 @@ final class TaskbarContentView: NSView {
     init(windowManager: WindowManager, permissionsManager: PermissionsManager) {
         self.windowManager = windowManager
         self.permissionsManager = permissionsManager
+        if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
+            self.axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
+        } else {
+            self.axGetWindow = nil
+        }
         super.init(frame: .zero)
         wantsLayer = true
         autoresizingMask = [.width, .height]
@@ -192,9 +202,15 @@ final class TaskbarContentView: NSView {
         let runningApplications = regularRunningApplications()
         let visibleApplicationPIDs = onScreenApplicationPIDs()
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let appsWithoutVisibleWindows = Set(
+            Dictionary(grouping: windowManager.windows, by: \.pid)
+                .compactMap { pid, windows in
+                    windows.allSatisfy { $0.isMinimized || $0.isHidden } ? pid : nil
+                }
+        )
 
         if permissionsManager.isAccessibilityGranted {
-            for window in windowManager.windows {
+            for window in windowManager.windows where !appsWithoutVisibleWindows.contains(window.pid) {
                 let buttonView = TaskButtonView(
                     windowInfo: window,
                     isActive: window.pid == frontmostPID,
@@ -247,7 +263,110 @@ final class TaskbarContentView: NSView {
             return
         }
 
+        if windowInfo.isHidden {
+            application.unhide()
+        }
+
+        if windowInfo.isMinimized {
+            unminimize(windowInfo: windowInfo, application: application)
+            return
+        }
+
         application.activate(options: .activateAllWindows)
+    }
+
+    private func unminimize(windowInfo: WindowInfo, application: NSRunningApplication) {
+        guard let windowElement = matchingWindowElement(for: windowInfo, application: application) else {
+            application.activate(options: .activateAllWindows)
+            return
+        }
+
+        _ = AXUIElementSetAttributeValue(
+            windowElement,
+            kAXMinimizedAttribute as CFString,
+            kCFBooleanFalse
+        )
+        _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
+        application.activate(options: .activateAllWindows)
+    }
+
+    private func matchingWindowElement(
+        for windowInfo: WindowInfo,
+        application: NSRunningApplication
+    ) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        var value: CFTypeRef?
+
+        guard
+            AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+            let values = value as? [Any]
+        else {
+            return nil
+        }
+
+        let windows = values.compactMap { value -> AXUIElement? in
+            let cfValue = value as CFTypeRef
+            guard CFGetTypeID(cfValue) == AXUIElementGetTypeID() else {
+                return nil
+            }
+
+            return unsafeBitCast(cfValue, to: AXUIElement.self)
+        }
+
+        if let cgWindowID = windowInfo.cgWindowID,
+           let matchedByID = windows.first(where: { axWindowID(for: $0) == cgWindowID }) {
+            return matchedByID
+        }
+
+        let trimmedTitle = windowInfo.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty,
+           let matchedByTitle = windows.first(where: { axTitle(for: $0) == trimmedTitle }) {
+            return matchedByTitle
+        }
+
+        return windows.first(where: { axIsMinimized($0) == windowInfo.isMinimized })
+    }
+
+    private func axWindowID(for element: AXUIElement) -> CGWindowID? {
+        guard let axGetWindow else {
+            return nil
+        }
+
+        var windowID: CGWindowID = 0
+        let error = axGetWindow(element, &windowID)
+
+        guard error == .success, windowID != 0 else {
+            return nil
+        }
+
+        return windowID
+    }
+
+    private func axTitle(for element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+
+        guard
+            AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value) == .success,
+            let title = value as? String
+        else {
+            return nil
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? nil : trimmedTitle
+    }
+
+    private func axIsMinimized(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+
+        guard
+            AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value) == .success,
+            let isMinimized = value as? Bool
+        else {
+            return false
+        }
+
+        return isMinimized
     }
 
     private func regularRunningApplications() -> [NSRunningApplication] {

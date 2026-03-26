@@ -4,6 +4,13 @@ import ApplicationServices
 final class TaskButtonView: NSView {
     private static var activeHoverView: TaskButtonView?
 
+    private enum WindowState {
+        case active
+        case normal
+        case minimized
+        case hidden
+    }
+
     private let hoverDelay: TimeInterval = 0.4
     private let windowInfo: WindowInfo
     private let isAccessibilityAvailable: Bool
@@ -34,8 +41,24 @@ final class TaskButtonView: NSView {
 
     var isActive: Bool {
         didSet {
-            updateBackgroundColor()
+            updateAppearance()
         }
+    }
+
+    private var windowState: WindowState {
+        if isActive {
+            return .active
+        }
+
+        if windowInfo.isHidden {
+            return .hidden
+        }
+
+        if windowInfo.isMinimized {
+            return .minimized
+        }
+
+        return .normal
     }
 
     init(
@@ -64,7 +87,7 @@ final class TaskButtonView: NSView {
         layer?.masksToBounds = true
 
         setupSubviews()
-        updateBackgroundColor()
+        updateAppearance()
     }
 
     @available(*, unavailable)
@@ -142,7 +165,6 @@ final class TaskButtonView: NSView {
 
     private func setupSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.image = windowInfo.icon
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -151,9 +173,7 @@ final class TaskButtonView: NSView {
         titleLabel.drawsBackground = false
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.usesSingleLineMode = true
-        titleLabel.stringValue = resolvedTitle()
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        toolTip = resolvedToolTip()
 
         addSubview(iconView)
         addSubview(titleLabel)
@@ -178,8 +198,19 @@ final class TaskButtonView: NSView {
         return windowTitle.isEmpty ? windowInfo.appName : windowTitle
     }
 
+    private func displayTitle() -> String {
+        switch windowState {
+        case .minimized:
+            return "[\(resolvedTitle())]"
+        case .hidden:
+            return "(\(resolvedTitle()))"
+        case .active, .normal:
+            return resolvedTitle()
+        }
+    }
+
     private func resolvedToolTip() -> String {
-        let title = resolvedTitle()
+        let title = displayTitle()
 
         if windowInfo.isProvisional || windowInfo.cgWindowID == nil || windowInfo.cgWindowID == 0 {
             return "\(title) (syncing...)"
@@ -273,6 +304,16 @@ final class TaskButtonView: NSView {
         return item
     }
 
+    private func updateAppearance() {
+        titleLabel.stringValue = displayTitle()
+        titleLabel.textColor = textColor()
+        toolTip = resolvedToolTip()
+        iconView.image = displayIcon()
+        iconView.alphaValue = iconAlpha()
+        updateBackgroundColor()
+        invalidateIntrinsicContentSize()
+    }
+
     @objc
     private func closeWindow(_ sender: Any?) {
         guard let windowElement else {
@@ -301,14 +342,60 @@ final class TaskButtonView: NSView {
         owningApplication?.terminate()
     }
 
+    private func textColor() -> NSColor {
+        switch windowState {
+        case .minimized, .hidden:
+            return .secondaryLabelColor
+        case .active, .normal:
+            return .labelColor
+        }
+    }
+
+    private func displayIcon() -> NSImage? {
+        switch windowState {
+        case .minimized:
+            return desaturatedIcon()
+        case .active, .normal, .hidden:
+            return windowInfo.icon
+        }
+    }
+
+    private func iconAlpha() -> CGFloat {
+        switch windowState {
+        case .minimized:
+            return 0.65
+        case .hidden:
+            return 0.5
+        case .active, .normal:
+            return 1.0
+        }
+    }
+
     private func updateBackgroundColor() {
         if isActive {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
         } else if isHovered {
             layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         } else {
             layer?.backgroundColor = NSColor.clear.cgColor
         }
+    }
+
+    private func desaturatedIcon() -> NSImage? {
+        guard let icon = windowInfo.icon else {
+            return nil
+        }
+
+        let sourceRect = NSRect(origin: .zero, size: icon.size)
+        let image = NSImage(size: icon.size)
+
+        image.lockFocus()
+        icon.draw(in: sourceRect)
+        NSColor(calibratedWhite: 0.65, alpha: 0.45).set()
+        sourceRect.fill(using: .sourceAtop)
+        image.unlockFocus()
+
+        return image
     }
 
     private static func resolveWindowElement(
