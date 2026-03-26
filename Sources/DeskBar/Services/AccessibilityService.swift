@@ -33,8 +33,8 @@ final class AccessibilityService {
         return matchWindowIDByFrame(for: element)
     }
 
-    func enumerateWindows(for app: NSRunningApplication) -> [AXUIElement] {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    func enumerateWindows(for application: NSRunningApplication) -> [AXUIElement] {
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
 
         guard let windowsValue = copyAttributeValue(
             for: appElement,
