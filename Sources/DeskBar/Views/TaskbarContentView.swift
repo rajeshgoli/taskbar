@@ -8,6 +8,7 @@ final class TaskbarContentView: NSView {
 
     private let windowManager: WindowManager
     private let permissionsManager: PermissionsManager
+    private let settings: TaskbarSettings
     private let axGetWindow: AXUIElementGetWindowFunc?
 
     private let rootStackView = NSStackView()
@@ -21,9 +22,14 @@ final class TaskbarContentView: NSView {
 
     private var cancellables = Set<AnyCancellable>()
 
-    init(windowManager: WindowManager, permissionsManager: PermissionsManager) {
+    init(
+        windowManager: WindowManager,
+        permissionsManager: PermissionsManager,
+        settings: TaskbarSettings
+    ) {
         self.windowManager = windowManager
         self.permissionsManager = permissionsManager
+        self.settings = settings
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
             self.axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
         } else {
@@ -35,6 +41,7 @@ final class TaskbarContentView: NSView {
 
         configureLayout()
         bindState()
+        updateTaskbarLayout()
         rebuildViews()
     }
 
@@ -154,6 +161,13 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        settings.$taskbarHeight
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateTaskbarLayout()
+            }
+            .store(in: &cancellables)
+
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         let notificationNames: [Notification.Name] = [
             NSWorkspace.didActivateApplicationNotification,
@@ -214,7 +228,8 @@ final class TaskbarContentView: NSView {
                 let buttonView = TaskButtonView(
                     windowInfo: window,
                     isActive: window.pid == frontmostPID,
-                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
+                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                    settings: settings
                 ) { [weak self] windowInfo in
                     self?.activate(windowInfo: windowInfo)
                 }
@@ -254,6 +269,17 @@ final class TaskbarContentView: NSView {
                 button.action = #selector(activateApplication(_:))
                 trayZoneStackView.addArrangedSubview(button)
             }
+    }
+
+    private func updateTaskbarLayout() {
+        let verticalInset = max(0, floor((settings.taskbarHeight - 32) / 2))
+        zonesStackView.edgeInsets = NSEdgeInsets(
+            top: verticalInset,
+            left: 10,
+            bottom: verticalInset,
+            right: 10
+        )
+        layoutSubtreeIfNeeded()
     }
 
     private func activate(windowInfo: WindowInfo) {
