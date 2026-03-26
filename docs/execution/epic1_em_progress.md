@@ -14,18 +14,24 @@ Full epic execution in progress. 8 phases, 28 sub-tickets. Goal: race to MVP.
 
 ### Current handoff state
 
-Phase 1 (Foundation) dispatched — 3 engineers in parallel.
+Phase 1 COMPLETE. Phase 2 dispatched (4 engineers). Phase 3-C also dispatched early (only needs P1).
 
 ### Immediate next steps
 
-1. Monitor Phase 1 engineers (1-A, 1-B, 1-C)
-2. Review PRs as they land
-3. Merge P1, validate `swift build` / `swift run`
-4. Dispatch Phase 2 (4 agents) immediately
+1. Monitor Phase 2 engineers (2-A, 2-B, 2-C, 2-D) and 3-C
+2. Dispatch Claude reviewers as PRs land
+3. Merge P2 PRs, validate milestone
+4. Dispatch Phase 3-A, 3-B, Phase 4, Phase 5 (can overlap)
 
 ### Agents
 
-(will be populated as dispatched)
+| ID | Name | Role | Status |
+|----|------|------|--------|
+| 115d9f71 | eng-2a-axservice | codex engineer | working on 2-A |
+| 30ea489e | eng-2b-perms | codex engineer | working on 2-B |
+| aaa54831 | eng-2c-monitors | codex engineer | working on 2-C |
+| 1b6bc71d | eng-2d-taskbtn | codex engineer | working on 2-D |
+| 5e76db4b | eng-3c-utils | codex engineer | working on 3-C (early start) |
 
 ---
 
@@ -45,13 +51,30 @@ Phase 1 (Foundation) dispatched — 3 engineers in parallel.
 
 ## Execution Log
 
-### Phase 1: Foundation — 3 agents
+### Phase 1: Foundation — COMPLETE
 
-| Ticket | Agent | Role | Status | PR | Notes |
-|--------|-------|------|--------|----|-------|
-| 1-A: SPM + Bootstrap | eng-1a-bootstrap (188e1f7a) | codex engineer | working | — | main.swift, AppDelegate.swift |
-| 1-B: Data Model | eng-1b-model (96c20b65) | codex engineer | working | — | WindowInfo.swift, WindowManager.swift |
-| 1-C: Panel + Views | eng-1c-views (33208e4b) | codex engineer | working | — | TaskbarPanel.swift, TaskbarContentView.swift |
+| Ticket | Agent | PR | Status | Notes |
+|--------|-------|----|--------|-------|
+| 1-A: SPM + Bootstrap | eng-1a-bootstrap | #32 | merged | PASS review |
+| 1-B: Data Model | eng-1b-model | #30 | merged | PASS review |
+| 1-C: Panel + Views | eng-1c-views | #31 | merged | BLOCK r1, fixed, PASS r2 |
+
+Milestone: swift build compiles clean (1.03s).
+
+### Phase 2: Window Switching — IN PROGRESS
+
+| Ticket | Agent | PR | Status |
+|--------|-------|----|--------|
+| 2-A: AccessibilityService | eng-2a-axservice (115d9f71) | — | working |
+| 2-B: Permissions + Banner | eng-2b-perms (30ea489e) | — | working |
+| 2-C: Monitors + Two-Tier | eng-2c-monitors (aaa54831) | — | working |
+| 2-D: TaskButtonView | eng-2d-taskbtn (1b6bc71d) | — | working |
+
+### Phase 3-C: Utilities — EARLY START
+
+| Ticket | Agent | PR | Status |
+|--------|-------|----|--------|
+| 3-C: Utilities | eng-3c-utils (5e76db4b) | — | working |
 
 ---
 
@@ -63,5 +86,6 @@ See `docs/working/backlog.md`
 
 ## Notes
 
-- Interface contracts defined upfront in dispatch prompts to enable full P1 parallelism
-- P1 milestone: `swift run` shows a floating bar at the bottom with app icons
+- P1 took 1 fix round on PR #31 (views stubs, sent back, fixed)
+- 5 engineers running in parallel (P2 + P3-C early)
+- Next: P5 (Settings) can start overlapping with P3/P4
