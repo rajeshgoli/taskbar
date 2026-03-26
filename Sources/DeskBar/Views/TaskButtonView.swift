@@ -112,14 +112,9 @@ final class TaskButtonView: NSView {
     }
 
     private func resolvedTitle() -> String {
-        let windowTitle = reflectedWindowTitle()
+        let windowTitle = windowInfo.title
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return windowTitle.isEmpty ? windowInfo.appName : windowTitle
-    }
-
-    private func reflectedWindowTitle() -> String {
-        Mirror(reflecting: windowInfo).children
-            .first(where: { $0.label == "windowTitle" })?.value as? String ?? ""
     }
 
     private func updateBackgroundColor() {
