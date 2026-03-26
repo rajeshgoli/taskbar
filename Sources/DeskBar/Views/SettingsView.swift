@@ -205,7 +205,7 @@ final class SettingsView: NSView {
         settings.$hoverDelay
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
-                self?.hoverDelaySlider.doubleValue = value
+                self?.hoverDelaySlider.doubleValue = value * 1000
             }
             .store(in: &cancellables)
 
@@ -230,7 +230,7 @@ final class SettingsView: NSView {
             }
             .store(in: &cancellables)
 
-        settings.$showOverFullscreenApps
+        settings.$showOverFullScreenApps
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.showOverFullscreenAppsCheckbox.state = value ? .on : .off
@@ -356,7 +356,7 @@ final class SettingsView: NSView {
 
     @objc
     private func hoverDelayChanged(_ sender: NSSlider) {
-        settings.hoverDelay = sender.doubleValue
+        settings.hoverDelay = sender.doubleValue / 1000
     }
 
     @objc
@@ -376,7 +376,7 @@ final class SettingsView: NSView {
 
     @objc
     private func showOverFullscreenAppsChanged(_ sender: NSButton) {
-        settings.showOverFullscreenApps = sender.state == .on
+        settings.showOverFullScreenApps = sender.state == .on
     }
 
     @objc
