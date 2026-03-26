@@ -190,7 +190,6 @@ final class TaskbarContentView: NSView {
         }
 
         let runningApplications = regularRunningApplications()
-        let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
         let visibleApplicationPIDs = onScreenApplicationPIDs()
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
@@ -206,7 +205,7 @@ final class TaskbarContentView: NSView {
                 buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
             }
         } else {
-            let taskItems = runningApplications.compactMap { application in
+            let taskItems: [TaskbarItem] = runningApplications.compactMap { application in
                 guard visibleApplicationPIDs.contains(application.processIdentifier) else {
                     return nil
                 }
