@@ -49,9 +49,9 @@ Phase 1 (Foundation) dispatched — 3 engineers in parallel.
 
 | Ticket | Agent | Role | Status | PR | Notes |
 |--------|-------|------|--------|----|-------|
-| 1-A: SPM + Bootstrap | TBD | engineer | dispatched | — | |
-| 1-B: Data Model | TBD | engineer | dispatched | — | |
-| 1-C: Panel + Views | TBD | engineer | dispatched | — | |
+| 1-A: SPM + Bootstrap | eng-1a-bootstrap (188e1f7a) | codex engineer | working | — | main.swift, AppDelegate.swift |
+| 1-B: Data Model | eng-1b-model (96c20b65) | codex engineer | working | — | WindowInfo.swift, WindowManager.swift |
+| 1-C: Panel + Views | eng-1c-views (33208e4b) | codex engineer | working | — | TaskbarPanel.swift, TaskbarContentView.swift |
 
 ---
 
