@@ -1,15 +1,26 @@
 import AppKit
+import ApplicationServices
 
 final class TaskButtonView: NSView {
     private static var activeHoverView: TaskButtonView?
 
     private let hoverDelay: TimeInterval = 0.4
     private let windowInfo: WindowInfo
+    private let isAccessibilityAvailable: Bool
     private let activationHandler: (WindowInfo) -> Void
     private let maxWidth: CGFloat
+    private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let thumbnailPopover = ThumbnailPopover()
+    private let owningApplication: NSRunningApplication?
+    private lazy var windowElement: AXUIElement? = {
+        Self.resolveWindowElement(
+            for: windowInfo,
+            application: owningApplication,
+            accessibilityService: accessibilityService
+        )
+    }()
     private var trackingAreaRef: NSTrackingArea?
     private var hoverWorkItem: DispatchWorkItem?
     private var thumbnailRequestTask: Task<Void, Never>?
@@ -30,13 +41,22 @@ final class TaskButtonView: NSView {
     init(
         windowInfo: WindowInfo,
         isActive: Bool,
+        isAccessibilityAvailable: Bool,
         maxWidth: CGFloat = 200,
+        accessibilityService: AccessibilityService = AccessibilityService(),
         activationHandler: @escaping (WindowInfo) -> Void
     ) {
+        let owningApplication = NSWorkspace.shared.runningApplications.first {
+            $0.processIdentifier == windowInfo.pid
+        }
+
         self.windowInfo = windowInfo
         self.isActive = isActive
+        self.isAccessibilityAvailable = isAccessibilityAvailable
         self.maxWidth = maxWidth
+        self.accessibilityService = accessibilityService
         self.activationHandler = activationHandler
+        self.owningApplication = owningApplication
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -113,6 +133,11 @@ final class TaskButtonView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         activationHandler(windowInfo)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = makeContextMenu()
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     private func setupSubviews() {
@@ -215,6 +240,67 @@ final class TaskButtonView: NSView {
         thumbnailPopover.close()
     }
 
+    private func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        if isAccessibilityAvailable {
+            menu.addItem(makeMenuItem(
+                title: "Close",
+                action: #selector(closeWindow(_:))
+            ))
+            menu.addItem(makeMenuItem(
+                title: "Minimize",
+                action: #selector(minimizeWindow(_:))
+            ))
+            menu.addItem(makeMenuItem(
+                title: "Hide",
+                action: #selector(hideApplication(_:))
+            ))
+        } else {
+            menu.addItem(makeMenuItem(
+                title: "Quit",
+                action: #selector(quitApplication(_:))
+            ))
+        }
+
+        return menu
+    }
+
+    private func makeMenuItem(title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    @objc
+    private func closeWindow(_ sender: Any?) {
+        guard let windowElement else {
+            return
+        }
+
+        accessibilityService.close(element: windowElement)
+    }
+
+    @objc
+    private func minimizeWindow(_ sender: Any?) {
+        guard let windowElement else {
+            return
+        }
+
+        accessibilityService.minimize(element: windowElement)
+    }
+
+    @objc
+    private func hideApplication(_ sender: Any?) {
+        owningApplication?.hide()
+    }
+
+    @objc
+    private func quitApplication(_ sender: Any?) {
+        owningApplication?.terminate()
+    }
+
     private func updateBackgroundColor() {
         if isActive {
             layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
@@ -223,5 +309,40 @@ final class TaskButtonView: NSView {
         } else {
             layer?.backgroundColor = NSColor.clear.cgColor
         }
+    }
+
+    private static func resolveWindowElement(
+        for windowInfo: WindowInfo,
+        application: NSRunningApplication?,
+        accessibilityService: AccessibilityService
+    ) -> AXUIElement? {
+        guard let application else {
+            return nil
+        }
+
+        let windows = accessibilityService.enumerateWindows(for: application)
+
+        if let cgWindowID = windowInfo.cgWindowID,
+           let idMatch = windows.first(where: { accessibilityService.getWindowID(for: $0) == cgWindowID }) {
+            return idMatch
+        }
+
+        let normalizedTitle = windowInfo.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedTitle.isEmpty,
+           let titleMatch = windows.first(where: { axTitle(for: $0) == normalizedTitle }) {
+            return titleMatch
+        }
+
+        return windows.first
+    }
+
+    private static func axTitle(for element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+
+        guard AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value) == .success else {
+            return nil
+        }
+
+        return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

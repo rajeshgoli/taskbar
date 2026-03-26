@@ -197,7 +197,8 @@ final class TaskbarContentView: NSView {
             for window in windowManager.windows {
                 let buttonView = TaskButtonView(
                     windowInfo: window,
-                    isActive: window.pid == frontmostPID
+                    isActive: window.pid == frontmostPID,
+                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
                 ) { [weak self] windowInfo in
                     self?.activate(windowInfo: windowInfo)
                 }
