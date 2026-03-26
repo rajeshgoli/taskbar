@@ -64,7 +64,6 @@ final class TaskbarContentView: NSView {
         bannerButton.target = self
         bannerButton.action = #selector(openAccessibilitySettings)
         rootStackView.addArrangedSubview(bannerButton)
-
         NSLayoutConstraint.activate([
             bannerButton.leadingAnchor.constraint(equalTo: rootStackView.leadingAnchor),
             bannerButton.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor),
@@ -78,7 +77,6 @@ final class TaskbarContentView: NSView {
         zonesStackView.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
         zonesStackView.translatesAutoresizingMaskIntoConstraints = false
         rootStackView.addArrangedSubview(zonesStackView)
-
         NSLayoutConstraint.activate([
             zonesStackView.leadingAnchor.constraint(equalTo: rootStackView.leadingAnchor),
             zonesStackView.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor)
