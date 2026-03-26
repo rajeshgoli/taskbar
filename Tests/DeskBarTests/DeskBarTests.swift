@@ -1,5 +1,4 @@
-import XCTest
+import Testing
 
-final class DeskBarTests: XCTestCase {
-    func testPackageCompiles() {}
-}
+@Test
+func packageCompiles() {}
