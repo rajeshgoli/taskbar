@@ -2,16 +2,28 @@ import AppKit
 import Combine
 
 final class SettingsView: NSView {
+    private struct AppEntry {
+        let displayName: String
+        let bundleIdentifier: String
+        let icon: NSImage?
+    }
+
     private enum LauncherColumn {
         static let icon = NSUserInterfaceItemIdentifier("icon")
         static let name = NSUserInterfaceItemIdentifier("name")
         static let bundleIdentifier = NSUserInterfaceItemIdentifier("bundleIdentifier")
     }
 
+    private enum BlacklistColumn {
+        static let app = NSUserInterfaceItemIdentifier("blacklistApp")
+        static let bundleIdentifier = NSUserInterfaceItemIdentifier("blacklistBundleIdentifier")
+    }
+
     private static let launcherPasteboardType = NSPasteboard.PasteboardType("com.deskbar.pinned-app-row")
 
     private let settings: TaskbarSettings
     private let pinnedAppManager: PinnedAppManager
+    private let blacklistManager: BlacklistManager
     private let tabView = NSTabView()
 
     private let startAtLoginCheckbox = NSButton(checkboxWithTitle: "Start at login", target: nil, action: nil)
@@ -34,18 +46,30 @@ final class SettingsView: NSView {
     private let launcherTableView = NSTableView()
     private let launcherScrollView = NSScrollView()
     private let removePinnedAppButton = NSButton(title: "Remove", target: nil, action: nil)
+    private let blacklistTableView = NSTableView()
+    private let blacklistScrollView = NSScrollView()
+    private let removeBlacklistButton = NSButton(title: "Remove", target: nil, action: nil)
+    private let addBlacklistButton = NSButton(title: "Add...", target: nil, action: nil)
 
+    private var blacklistEntries: [AppEntry] = []
+    private var addSheetEntries: [AppEntry] = []
     private var cancellables = Set<AnyCancellable>()
 
-    init(settings: TaskbarSettings, pinnedAppManager: PinnedAppManager = PinnedAppManager()) {
+    init(
+        settings: TaskbarSettings,
+        pinnedAppManager: PinnedAppManager = PinnedAppManager(),
+        blacklistManager: BlacklistManager
+    ) {
         self.settings = settings
         self.pinnedAppManager = pinnedAppManager
+        self.blacklistManager = blacklistManager
         super.init(frame: .zero)
 
         configureLayout()
         configureActions()
         bindSettings()
         bindPinnedApps()
+        bindBlacklist()
     }
 
     @available(*, unavailable)
@@ -66,6 +90,7 @@ final class SettingsView: NSView {
 
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
         configureLauncherTableView()
+        configureBlacklistTableView()
 
         let generalTab = NSTabViewItem(identifier: "general")
         generalTab.label = "General"
@@ -102,7 +127,7 @@ final class SettingsView: NSView {
 
         let blacklistTab = NSTabViewItem(identifier: "blacklist")
         blacklistTab.label = "Blacklist"
-        blacklistTab.view = makePlaceholderView(text: "Blacklist configuration will appear here")
+        blacklistTab.view = makeBlacklistView()
 
         [generalTab, appearanceTab, behaviorTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
     }
@@ -140,6 +165,31 @@ final class SettingsView: NSView {
         launcherScrollView.borderType = .bezelBorder
         launcherScrollView.hasVerticalScroller = true
         launcherScrollView.documentView = launcherTableView
+    }
+
+    private func configureBlacklistTableView() {
+        let appColumn = NSTableColumn(identifier: BlacklistColumn.app)
+        appColumn.title = "App"
+        appColumn.width = 240
+
+        let bundleIdentifierColumn = NSTableColumn(identifier: BlacklistColumn.bundleIdentifier)
+        bundleIdentifierColumn.title = "Bundle ID"
+        bundleIdentifierColumn.width = 300
+
+        blacklistTableView.addTableColumn(appColumn)
+        blacklistTableView.addTableColumn(bundleIdentifierColumn)
+        blacklistTableView.headerView = NSTableHeaderView()
+        blacklistTableView.usesAlternatingRowBackgroundColors = true
+        blacklistTableView.allowsMultipleSelection = false
+        blacklistTableView.allowsEmptySelection = true
+        blacklistTableView.rowHeight = 36
+        blacklistTableView.delegate = self
+        blacklistTableView.dataSource = self
+
+        blacklistScrollView.translatesAutoresizingMaskIntoConstraints = false
+        blacklistScrollView.borderType = .bezelBorder
+        blacklistScrollView.hasVerticalScroller = true
+        blacklistScrollView.documentView = blacklistTableView
     }
 
     private func configureActions() {
@@ -187,6 +237,12 @@ final class SettingsView: NSView {
 
         removePinnedAppButton.target = self
         removePinnedAppButton.action = #selector(removePinnedApp(_:))
+
+        removeBlacklistButton.target = self
+        removeBlacklistButton.action = #selector(removeBlacklistEntry(_:))
+
+        addBlacklistButton.target = self
+        addBlacklistButton.action = #selector(showAddBlacklistSheet(_:))
     }
 
     private func bindSettings() {
@@ -320,6 +376,17 @@ final class SettingsView: NSView {
             .store(in: &cancellables)
     }
 
+    private func bindBlacklist() {
+        blacklistManager.$blacklistedBundleIDs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.reloadBlacklistEntries()
+            }
+            .store(in: &cancellables)
+
+        reloadBlacklistEntries()
+    }
+
     private func makeFormView(rows: [NSView]) -> NSView {
         let container = NSView()
         let stackView = NSStackView(views: rows)
@@ -393,6 +460,52 @@ final class SettingsView: NSView {
         return container
     }
 
+    private func makeBlacklistView() -> NSView {
+        let container = NSView()
+        let descriptionLabel = NSTextField(labelWithString: "Hidden apps are excluded from the taskbar.")
+        descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let buttonRow = NSStackView()
+        buttonRow.orientation = .horizontal
+        buttonRow.alignment = .centerY
+        buttonRow.spacing = 8
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
+        buttonRow.addArrangedSubview(removeBlacklistButton)
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        buttonRow.addArrangedSubview(spacer)
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        buttonRow.addArrangedSubview(addBlacklistButton)
+
+        removeBlacklistButton.isEnabled = false
+
+        container.addSubview(descriptionLabel)
+        container.addSubview(blacklistScrollView)
+        container.addSubview(buttonRow)
+
+        NSLayoutConstraint.activate([
+            descriptionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            descriptionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            descriptionLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+
+            blacklistScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            blacklistScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            blacklistScrollView.topAnchor.constraint(equalTo: descriptionLabel.bottomAnchor, constant: 12),
+            blacklistScrollView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -12),
+            blacklistScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
+
+            buttonRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            buttonRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            buttonRow.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -20)
+        ])
+
+        return container
+    }
+
     private func makePlaceholderView(text: String) -> NSView {
         let container = NSView()
         let label = NSTextField(labelWithString: text)
@@ -451,6 +564,38 @@ final class SettingsView: NSView {
         return cell
     }
 
+    private func makeAppCell(identifier: NSUserInterfaceItemIdentifier, entry: AppEntry) -> NSTableCellView {
+        let cell = NSTableCellView()
+        cell.identifier = identifier
+
+        let imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.image = entry.icon
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let textField = NSTextField(labelWithString: entry.displayName)
+        textField.lineBreakMode = .byTruncatingTail
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.addSubview(imageView)
+        cell.addSubview(textField)
+        cell.imageView = imageView
+        cell.textField = textField
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+            imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 20),
+            imageView.heightAnchor.constraint(equalToConstant: 20),
+
+            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8),
+            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        ])
+
+        return cell
+    }
+
     private var selectedPinnedApp: PinnedApp? {
         let selectedRow = launcherTableView.selectedRow
         guard pinnedAppManager.pinnedApps.indices.contains(selectedRow) else {
@@ -462,6 +607,157 @@ final class SettingsView: NSView {
 
     private func updateRemoveButtonState() {
         removePinnedAppButton.isEnabled = selectedPinnedApp != nil
+    }
+
+    private func updateBlacklistButtonState() {
+        let selectedRow = blacklistTableView.selectedRow
+        removeBlacklistButton.isEnabled = blacklistEntries.indices.contains(selectedRow)
+    }
+
+    private func reloadBlacklistEntries() {
+        blacklistEntries = blacklistManager.blacklistedBundleIDs
+            .map(resolveAppEntry(bundleIdentifier:))
+            .sorted { lhs, rhs in
+                let nameComparison = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+                if nameComparison != .orderedSame {
+                    return nameComparison == .orderedAscending
+                }
+
+                return lhs.bundleIdentifier.localizedCaseInsensitiveCompare(rhs.bundleIdentifier) == .orderedAscending
+            }
+
+        blacklistTableView.reloadData()
+
+        if blacklistEntries.isEmpty {
+            blacklistTableView.deselectAll(nil)
+        } else if !blacklistEntries.indices.contains(blacklistTableView.selectedRow) {
+            blacklistTableView.selectRowIndexes(IndexSet(integer: blacklistEntries.count - 1), byExtendingSelection: false)
+        }
+
+        updateBlacklistButtonState()
+    }
+
+    private func resolveAppEntry(bundleIdentifier: String) -> AppEntry {
+        if let application = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) {
+            return AppEntry(
+                displayName: application.localizedName ?? bundleIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                icon: application.icon
+            )
+        }
+
+        if let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            let bundle = Bundle(url: applicationURL)
+            let displayName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+                ?? (bundle?.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String)
+                ?? FileManager.default.displayName(atPath: applicationURL.path)
+
+            return AppEntry(
+                displayName: displayName,
+                bundleIdentifier: bundleIdentifier,
+                icon: NSWorkspace.shared.icon(forFile: applicationURL.path)
+            )
+        }
+
+        return AppEntry(
+            displayName: bundleIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            icon: nil
+        )
+    }
+
+    private func runningAppEntries() -> [AppEntry] {
+        let applicationsByBundleIdentifier = Dictionary(
+            NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .compactMap { application -> (String, NSRunningApplication)? in
+                    guard let bundleIdentifier = application.bundleIdentifier else {
+                        return nil
+                    }
+
+                    return (bundleIdentifier, application)
+                },
+            uniquingKeysWith: { existing, _ in existing }
+        )
+
+        return applicationsByBundleIdentifier.values
+            .filter { application in
+                guard let bundleIdentifier = application.bundleIdentifier else {
+                    return false
+                }
+
+                return !blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
+            }
+            .map { application in
+                AppEntry(
+                    displayName: application.localizedName ?? application.bundleIdentifier ?? "",
+                    bundleIdentifier: application.bundleIdentifier ?? "",
+                    icon: application.icon
+                )
+            }
+            .sorted { lhs, rhs in
+                let nameComparison = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+                if nameComparison != .orderedSame {
+                    return nameComparison == .orderedAscending
+                }
+
+                return lhs.bundleIdentifier.localizedCaseInsensitiveCompare(rhs.bundleIdentifier) == .orderedAscending
+            }
+    }
+
+    private func showRunningAppsSelection(entries: [AppEntry]) {
+        let alert = NSAlert()
+        alert.messageText = "Add App to Blacklist"
+        alert.informativeText = "Select a currently running app to hide from the taskbar."
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+
+        let tableView = NSTableView()
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.identifier = NSUserInterfaceItemIdentifier("runningAppsTable")
+        tableView.rowHeight = 36
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.allowsEmptySelection = false
+
+        let appColumn = NSTableColumn(identifier: BlacklistColumn.app)
+        appColumn.title = "App"
+        appColumn.width = 220
+
+        let bundleIdentifierColumn = NSTableColumn(identifier: BlacklistColumn.bundleIdentifier)
+        bundleIdentifierColumn.title = "Bundle ID"
+        bundleIdentifierColumn.width = 250
+
+        tableView.addTableColumn(appColumn)
+        tableView.addTableColumn(bundleIdentifierColumn)
+
+        addSheetEntries = entries
+
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.documentView = tableView
+
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 220))
+        accessoryView.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: accessoryView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: accessoryView.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: accessoryView.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: accessoryView.bottomAnchor)
+        ])
+
+        alert.accessoryView = accessoryView
+        tableView.reloadData()
+        if !entries.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+
+        if alert.runModal() == .alertFirstButtonReturn, entries.indices.contains(tableView.selectedRow) {
+            blacklistManager.add(bundleIdentifier: entries[tableView.selectedRow].bundleIdentifier)
+        }
     }
 
     @objc
@@ -549,38 +845,106 @@ final class SettingsView: NSView {
 
         pinnedAppManager.unpin(bundleIdentifier: pinnedApp.bundleIdentifier)
     }
+
+    @objc
+    private func removeBlacklistEntry(_ sender: NSButton) {
+        let selectedRow = blacklistTableView.selectedRow
+        guard blacklistEntries.indices.contains(selectedRow) else {
+            return
+        }
+
+        blacklistManager.remove(bundleIdentifier: blacklistEntries[selectedRow].bundleIdentifier)
+    }
+
+    @objc
+    private func showAddBlacklistSheet(_ sender: NSButton) {
+        let entries = runningAppEntries()
+        guard !entries.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Running Apps"
+            alert.informativeText = "There are no currently running apps available to blacklist."
+            alert.runModal()
+            return
+        }
+
+        showRunningAppsSelection(entries: entries)
+    }
 }
 
 extension SettingsView: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        pinnedAppManager.pinnedApps.count
+        if tableView === launcherTableView {
+            return pinnedAppManager.pinnedApps.count
+        }
+
+        if tableView === blacklistTableView || tableView.identifier?.rawValue == "runningAppsTable" {
+            return tableView === blacklistTableView ? blacklistEntries.count : addSheetEntries.count
+        }
+
+        return 0
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard pinnedAppManager.pinnedApps.indices.contains(row),
-              let tableColumn else {
+        guard let tableColumn else {
             return nil
         }
 
-        let pinnedApp = pinnedAppManager.pinnedApps[row]
+        if tableView === launcherTableView {
+            guard pinnedAppManager.pinnedApps.indices.contains(row) else {
+                return nil
+            }
+
+            let pinnedApp = pinnedAppManager.pinnedApps[row]
+
+            switch tableColumn.identifier {
+            case LauncherColumn.icon:
+                return makeImageCell(identifier: LauncherColumn.icon, image: pinnedApp.icon)
+            case LauncherColumn.name:
+                return makeTextCell(identifier: LauncherColumn.name, text: pinnedApp.name)
+            case LauncherColumn.bundleIdentifier:
+                return makeTextCell(identifier: LauncherColumn.bundleIdentifier, text: pinnedApp.bundleIdentifier)
+            default:
+                return nil
+            }
+        }
+
+        let entries = tableView === blacklistTableView ? blacklistEntries : addSheetEntries
+        guard entries.indices.contains(row) else {
+            return nil
+        }
+
+        let entry = entries[row]
 
         switch tableColumn.identifier {
-        case LauncherColumn.icon:
-            return makeImageCell(identifier: LauncherColumn.icon, image: pinnedApp.icon)
-        case LauncherColumn.name:
-            return makeTextCell(identifier: LauncherColumn.name, text: pinnedApp.name)
-        case LauncherColumn.bundleIdentifier:
-            return makeTextCell(identifier: LauncherColumn.bundleIdentifier, text: pinnedApp.bundleIdentifier)
+        case BlacklistColumn.app:
+            return makeAppCell(identifier: BlacklistColumn.app, entry: entry)
+        case BlacklistColumn.bundleIdentifier:
+            return makeTextCell(identifier: BlacklistColumn.bundleIdentifier, text: entry.bundleIdentifier)
         default:
             return nil
         }
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        updateRemoveButtonState()
+        guard let tableView = notification.object as? NSTableView else {
+            return
+        }
+
+        if tableView === launcherTableView {
+            updateRemoveButtonState()
+            return
+        }
+
+        if tableView === blacklistTableView {
+            updateBlacklistButtonState()
+        }
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        guard tableView === launcherTableView else {
+            return nil
+        }
+
         let item = NSPasteboardItem()
         item.setString(String(row), forType: Self.launcherPasteboardType)
         return item
@@ -592,6 +956,10 @@ extension SettingsView: NSTableViewDataSource, NSTableViewDelegate {
         proposedRow row: Int,
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
+        guard tableView === launcherTableView else {
+            return []
+        }
+
         guard info.draggingSource as AnyObject? === tableView else {
             return []
         }
@@ -606,6 +974,10 @@ extension SettingsView: NSTableViewDataSource, NSTableViewDelegate {
         row: Int,
         dropOperation: NSTableView.DropOperation
     ) -> Bool {
+        guard tableView === launcherTableView else {
+            return false
+        }
+
         guard let pasteboardItem = info.draggingPasteboard.pasteboardItems?.first,
               let sourceRowString = pasteboardItem.string(forType: Self.launcherPasteboardType),
               let sourceRow = Int(sourceRowString) else {

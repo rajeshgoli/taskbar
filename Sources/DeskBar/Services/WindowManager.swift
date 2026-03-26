@@ -6,20 +6,33 @@ final class WindowManager: ObservableObject {
     @Published var windows: [WindowInfo] = []
 
     private let accessibilityService: AccessibilityService
+    private let blacklistManager: BlacklistManager
     private let refreshDebouncer = Debouncer()
     private var workspaceMonitor: WorkspaceMonitor?
     private var axObserverManager: AXObserverManager?
     private var pollTimer: Timer?
+    private var blacklistObserver: NSObjectProtocol?
 
     private var authoritative: [CGWindowID: WindowInfo] = [:]
     private var provisional: [String: WindowInfo] = [:]
     private var provisionalElements: [String: AXUIElement] = [:]
     private var promotionWorkItems: [String: DispatchWorkItem] = [:]
 
-    init(accessibilityService: AccessibilityService = AccessibilityService()) {
+    init(
+        accessibilityService: AccessibilityService = AccessibilityService(),
+        blacklistManager: BlacklistManager = BlacklistManager()
+    ) {
         self.accessibilityService = accessibilityService
+        self.blacklistManager = blacklistManager
         workspaceMonitor = WorkspaceMonitor(windowManager: self)
         axObserverManager = AXObserverManager(windowManager: self)
+        blacklistObserver = NotificationCenter.default.addObserver(
+            forName: BlacklistManager.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refresh()
+        }
         startPollTimer()
         refresh()
     }
@@ -27,6 +40,10 @@ final class WindowManager: ObservableObject {
     deinit {
         pollTimer?.invalidate()
         promotionWorkItems.values.forEach { $0.cancel() }
+
+        if let blacklistObserver {
+            NotificationCenter.default.removeObserver(blacklistObserver)
+        }
     }
 
     func refreshDebounced() {
@@ -36,7 +53,9 @@ final class WindowManager: ObservableObject {
     }
 
     func refresh() {
-        let regularApplications = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        let regularApplications = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !isBlacklisted(bundleIdentifier: $0.bundleIdentifier)
+        }
         let applicationsByPID = Dictionary(uniqueKeysWithValues: regularApplications.map { ($0.processIdentifier, $0) })
         let displayBounds = currentDisplayBounds()
         let cgSnapshots = fetchCGWindowSnapshots(
@@ -350,7 +369,9 @@ final class WindowManager: ObservableObject {
     }
 
     private func publishWindows() {
-        let combined = Array(authoritative.values) + Array(provisional.values)
+        let combined = (Array(authoritative.values) + Array(provisional.values)).filter { window in
+            !isBlacklisted(bundleIdentifier: window.bundleIdentifier)
+        }
 
         windows = combined.sorted {
             if $0.appName != $1.appName {
@@ -367,6 +388,14 @@ final class WindowManager: ObservableObject {
 
     private func provisionalKey(for pid: pid_t, element: AXUIElement) -> String {
         "\(pid)-\(Unmanaged.passUnretained(element).toOpaque())"
+    }
+
+    private func isBlacklisted(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else {
+            return false
+        }
+
+        return blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
     }
 }
 

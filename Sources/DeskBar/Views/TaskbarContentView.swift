@@ -9,6 +9,7 @@ final class TaskbarContentView: NSView {
     private let windowManager: WindowManager
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
+    private let blacklistManager: BlacklistManager
     private let axGetWindow: AXUIElementGetWindowFunc?
 
     private let rootStackView = NSStackView()
@@ -25,11 +26,13 @@ final class TaskbarContentView: NSView {
     init(
         windowManager: WindowManager,
         permissionsManager: PermissionsManager,
-        settings: TaskbarSettings
+        settings: TaskbarSettings,
+        blacklistManager: BlacklistManager
     ) {
         self.windowManager = windowManager
         self.permissionsManager = permissionsManager
         self.settings = settings
+        self.blacklistManager = blacklistManager
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
             self.axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
         } else {
@@ -229,7 +232,8 @@ final class TaskbarContentView: NSView {
                     windowInfo: window,
                     isActive: window.pid == frontmostPID,
                     isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
-                    settings: settings
+                    settings: settings,
+                    blacklistManager: blacklistManager
                 ) { [weak self] windowInfo in
                     self?.activate(windowInfo: windowInfo)
                 }

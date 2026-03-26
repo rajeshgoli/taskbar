@@ -15,6 +15,7 @@ final class TaskButtonView: NSView {
     private let settings: TaskbarSettings
     private let windowInfo: WindowInfo
     private let isAccessibilityAvailable: Bool
+    private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
     private var hoverDelay: TimeInterval
     private var maxWidth: CGFloat
@@ -70,6 +71,7 @@ final class TaskButtonView: NSView {
         isActive: Bool,
         isAccessibilityAvailable: Bool,
         settings: TaskbarSettings,
+        blacklistManager: BlacklistManager,
         accessibilityService: AccessibilityService = AccessibilityService(),
         activationHandler: @escaping (WindowInfo) -> Void
     ) {
@@ -81,6 +83,7 @@ final class TaskButtonView: NSView {
         self.windowInfo = windowInfo
         self.isActive = isActive
         self.isAccessibilityAvailable = isAccessibilityAvailable
+        self.blacklistManager = blacklistManager
         self.hoverDelay = settings.hoverDelay
         self.maxWidth = settings.maxTaskWidth
         self.accessibilityService = accessibilityService
@@ -341,12 +344,25 @@ final class TaskButtonView: NSView {
             ))
         }
 
+        menu.addItem(.separator())
+        menu.addItem(makeBlacklistMenuItem())
+
         return menu
     }
 
     private func makeMenuItem(title: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        return item
+    }
+
+    private func makeBlacklistMenuItem() -> NSMenuItem {
+        let item = makeMenuItem(title: "Add to Blacklist", action: #selector(addToBlacklist(_:)))
+        if let bundleIdentifier = windowInfo.bundleIdentifier {
+            item.isEnabled = !blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
+        } else {
+            item.isEnabled = false
+        }
         return item
     }
 
@@ -386,6 +402,15 @@ final class TaskButtonView: NSView {
     @objc
     private func quitApplication(_ sender: Any?) {
         owningApplication?.terminate()
+    }
+
+    @objc
+    private func addToBlacklist(_ sender: Any?) {
+        guard let bundleIdentifier = windowInfo.bundleIdentifier else {
+            return
+        }
+
+        blacklistManager.add(bundleIdentifier: bundleIdentifier)
     }
 
     private func textColor() -> NSColor {
