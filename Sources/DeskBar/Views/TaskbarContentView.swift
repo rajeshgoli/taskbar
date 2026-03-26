@@ -10,13 +10,13 @@ final class TaskbarContentView: NSView {
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let blacklistManager: BlacklistManager
+    private let pinnedAppManager: PinnedAppManager
+    private let launcherZoneView: LauncherZoneView
     private let axGetWindow: AXUIElementGetWindowFunc?
 
     private let rootStackView = NSStackView()
     private let bannerButton = NSButton()
     private let zonesStackView = NSStackView()
-    private let launcherZoneView = NSView()
-    private let launcherLabel = NSTextField(labelWithString: "Launcher")
     private let taskZoneScrollView = NSScrollView()
     private let taskZoneStackView = NSStackView()
     private let trayZoneStackView = NSStackView()
@@ -27,12 +27,18 @@ final class TaskbarContentView: NSView {
         windowManager: WindowManager,
         permissionsManager: PermissionsManager,
         settings: TaskbarSettings,
-        blacklistManager: BlacklistManager
+        blacklistManager: BlacklistManager,
+        pinnedAppManager: PinnedAppManager
     ) {
         self.windowManager = windowManager
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
+        self.pinnedAppManager = pinnedAppManager
+        launcherZoneView = LauncherZoneView(
+            pinnedAppManager: pinnedAppManager,
+            windowManager: windowManager
+        )
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
             self.axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
         } else {
@@ -54,6 +60,7 @@ final class TaskbarContentView: NSView {
     }
 
     func handleAccessibilityPermissionChange() {
+        launcherZoneView.refresh()
         rebuildViews()
     }
 
@@ -102,9 +109,6 @@ final class TaskbarContentView: NSView {
             zonesStackView.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor)
         ])
 
-        let launcherContainer = makeZoneContainer(for: launcherZoneView, width: 120)
-        configureLauncherZone()
-
         let taskZoneContainer = NSView()
         taskZoneContainer.translatesAutoresizingMaskIntoConstraints = false
         taskZoneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -149,8 +153,7 @@ final class TaskbarContentView: NSView {
         trayZoneStackView.spacing = 6
         trayZoneStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
-        zonesStackView.addArrangedSubview(launcherContainer)
-        zonesStackView.addArrangedSubview(makeDivider())
+        zonesStackView.addArrangedSubview(launcherZoneView)
         zonesStackView.addArrangedSubview(taskZoneContainer)
         zonesStackView.addArrangedSubview(makeDivider())
         zonesStackView.addArrangedSubview(trayContainer)
@@ -168,6 +171,13 @@ final class TaskbarContentView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateTaskbarLayout()
+            }
+            .store(in: &cancellables)
+
+        pinnedAppManager.$pinnedApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildViews()
             }
             .store(in: &cancellables)
 
@@ -190,19 +200,6 @@ final class TaskbarContentView: NSView {
         }
     }
 
-    private func configureLauncherZone() {
-        launcherLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        launcherLabel.textColor = NSColor.secondaryLabelColor
-        launcherLabel.alignment = .center
-        launcherLabel.translatesAutoresizingMaskIntoConstraints = false
-        launcherZoneView.addSubview(launcherLabel)
-
-        NSLayoutConstraint.activate([
-            launcherLabel.centerXAnchor.constraint(equalTo: launcherZoneView.centerXAnchor),
-            launcherLabel.centerYAnchor.constraint(equalTo: launcherZoneView.centerYAnchor)
-        ])
-    }
-
     private func rebuildViews() {
         bannerButton.isHidden = permissionsManager.isAccessibilityGranted
 
@@ -217,6 +214,7 @@ final class TaskbarContentView: NSView {
         }
 
         let runningApplications = regularRunningApplications()
+        let pinnedBundleIdentifiers = Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier))
         let visibleApplicationPIDs = onScreenApplicationPIDs()
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let appsWithoutVisibleWindows = Set(
@@ -266,7 +264,10 @@ final class TaskbarContentView: NSView {
         }
 
         runningApplications
-            .filter { !visibleApplicationPIDs.contains($0.processIdentifier) }
+            .filter { application in
+                !visibleApplicationPIDs.contains(application.processIdentifier) &&
+                    !pinnedBundleIdentifiers.contains(application.bundleIdentifier ?? "")
+            }
             .forEach { application in
                 let button = TrayAppButton(application: application)
                 button.target = self

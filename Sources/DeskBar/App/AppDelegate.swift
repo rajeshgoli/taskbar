@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var permissionsManager: PermissionsManager?
     private var settings: TaskbarSettings?
     private var blacklistManager: BlacklistManager?
+    private var pinnedAppManager: PinnedAppManager?
     private var settingsWindowController: SettingsWindowController?
     private var contentView: TaskbarContentView?
     private var statusItem: NSStatusItem?
@@ -22,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permissions = PermissionsManager()
         permissionsManager = permissions
 
+        let pinnedAppManager = PinnedAppManager()
+        self.pinnedAppManager = pinnedAppManager
+
         let wm = WindowManager(blacklistManager: blacklistManager)
         windowManager = wm
 
@@ -29,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windowManager: wm,
             permissionsManager: permissions,
             settings: settings,
-            blacklistManager: blacklistManager
+            blacklistManager: blacklistManager,
+            pinnedAppManager: pinnedAppManager
         )
         self.contentView = contentView
 
@@ -43,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         settingsWindowController = SettingsWindowController(
             settings: settings,
-            blacklistManager: blacklistManager
+            blacklistManager: blacklistManager,
+            pinnedAppManager: pinnedAppManager
         )
         configureStatusItem()
 
