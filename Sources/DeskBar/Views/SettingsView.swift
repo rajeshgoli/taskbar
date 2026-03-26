@@ -2,7 +2,16 @@ import AppKit
 import Combine
 
 final class SettingsView: NSView {
+    private enum LauncherColumn {
+        static let icon = NSUserInterfaceItemIdentifier("icon")
+        static let name = NSUserInterfaceItemIdentifier("name")
+        static let bundleIdentifier = NSUserInterfaceItemIdentifier("bundleIdentifier")
+    }
+
+    private static let launcherPasteboardType = NSPasteboard.PasteboardType("com.deskbar.pinned-app-row")
+
     private let settings: TaskbarSettings
+    private let pinnedAppManager: PinnedAppManager
     private let tabView = NSTabView()
 
     private let startAtLoginCheckbox = NSButton(checkboxWithTitle: "Start at login", target: nil, action: nil)
@@ -22,15 +31,21 @@ final class SettingsView: NSView {
     private let showOverFullscreenAppsCheckbox = NSButton(checkboxWithTitle: "Show over full-screen apps", target: nil, action: nil)
     private let showOnAllMonitorsCheckbox = NSButton(checkboxWithTitle: "Show on all monitors", target: nil, action: nil)
 
+    private let launcherTableView = NSTableView()
+    private let launcherScrollView = NSScrollView()
+    private let removePinnedAppButton = NSButton(title: "Remove", target: nil, action: nil)
+
     private var cancellables = Set<AnyCancellable>()
 
-    init(settings: TaskbarSettings) {
+    init(settings: TaskbarSettings, pinnedAppManager: PinnedAppManager = PinnedAppManager()) {
         self.settings = settings
+        self.pinnedAppManager = pinnedAppManager
         super.init(frame: .zero)
 
         configureLayout()
         configureActions()
         bindSettings()
+        bindPinnedApps()
     }
 
     @available(*, unavailable)
@@ -50,6 +65,7 @@ final class SettingsView: NSView {
         ])
 
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
+        configureLauncherTableView()
 
         let generalTab = NSTabViewItem(identifier: "general")
         generalTab.label = "General"
@@ -82,13 +98,48 @@ final class SettingsView: NSView {
 
         let launcherTab = NSTabViewItem(identifier: "launcher")
         launcherTab.label = "Launcher"
-        launcherTab.view = makePlaceholderView(text: "Launcher configuration will appear here")
+        launcherTab.view = makeLauncherView()
 
         let blacklistTab = NSTabViewItem(identifier: "blacklist")
         blacklistTab.label = "Blacklist"
         blacklistTab.view = makePlaceholderView(text: "Blacklist configuration will appear here")
 
         [generalTab, appearanceTab, behaviorTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
+    }
+
+    private func configureLauncherTableView() {
+        let iconColumn = NSTableColumn(identifier: LauncherColumn.icon)
+        iconColumn.title = ""
+        iconColumn.width = 44
+        iconColumn.minWidth = 44
+        iconColumn.maxWidth = 44
+
+        let nameColumn = NSTableColumn(identifier: LauncherColumn.name)
+        nameColumn.title = "Name"
+        nameColumn.width = 180
+
+        let bundleIdentifierColumn = NSTableColumn(identifier: LauncherColumn.bundleIdentifier)
+        bundleIdentifierColumn.title = "Bundle ID"
+        bundleIdentifierColumn.width = 280
+
+        launcherTableView.addTableColumn(iconColumn)
+        launcherTableView.addTableColumn(nameColumn)
+        launcherTableView.addTableColumn(bundleIdentifierColumn)
+        launcherTableView.headerView = NSTableHeaderView()
+        launcherTableView.usesAlternatingRowBackgroundColors = true
+        launcherTableView.allowsMultipleSelection = false
+        launcherTableView.allowsEmptySelection = true
+        launcherTableView.rowHeight = 36
+        launcherTableView.delegate = self
+        launcherTableView.dataSource = self
+        launcherTableView.registerForDraggedTypes([Self.launcherPasteboardType])
+        launcherTableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        launcherTableView.draggingDestinationFeedbackStyle = .gap
+
+        launcherScrollView.translatesAutoresizingMaskIntoConstraints = false
+        launcherScrollView.borderType = .bezelBorder
+        launcherScrollView.hasVerticalScroller = true
+        launcherScrollView.documentView = launcherTableView
     }
 
     private func configureActions() {
@@ -133,6 +184,9 @@ final class SettingsView: NSView {
 
         showOnAllMonitorsCheckbox.target = self
         showOnAllMonitorsCheckbox.action = #selector(showOnAllMonitorsChanged(_:))
+
+        removePinnedAppButton.target = self
+        removePinnedAppButton.action = #selector(removePinnedApp(_:))
     }
 
     private func bindSettings() {
@@ -245,6 +299,27 @@ final class SettingsView: NSView {
             .store(in: &cancellables)
     }
 
+    private func bindPinnedApps() {
+        pinnedAppManager.$pinnedApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] pinnedApps in
+                guard let self else {
+                    return
+                }
+
+                let selectedBundleIdentifier = selectedPinnedApp?.bundleIdentifier
+                launcherTableView.reloadData()
+
+                if let selectedBundleIdentifier,
+                   let selectedRow = pinnedApps.firstIndex(where: { $0.bundleIdentifier == selectedBundleIdentifier }) {
+                    launcherTableView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+                }
+
+                updateRemoveButtonState()
+            }
+            .store(in: &cancellables)
+    }
+
     private func makeFormView(rows: [NSView]) -> NSView {
         let container = NSView()
         let stackView = NSStackView(views: rows)
@@ -291,6 +366,33 @@ final class SettingsView: NSView {
         return row
     }
 
+    private func makeLauncherView() -> NSView {
+        let container = NSView()
+        let buttonRow = NSStackView(views: [removePinnedAppButton])
+        buttonRow.orientation = .horizontal
+        buttonRow.alignment = .centerY
+        buttonRow.distribution = .gravityAreas
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
+
+        removePinnedAppButton.isEnabled = false
+
+        container.addSubview(launcherScrollView)
+        container.addSubview(buttonRow)
+
+        NSLayoutConstraint.activate([
+            launcherScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            launcherScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            launcherScrollView.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            launcherScrollView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -12),
+            launcherScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240),
+
+            buttonRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            buttonRow.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -20)
+        ])
+
+        return container
+    }
+
     private func makePlaceholderView(text: String) -> NSView {
         let container = NSView()
         let label = NSTextField(labelWithString: text)
@@ -305,6 +407,61 @@ final class SettingsView: NSView {
         ])
 
         return container
+    }
+
+    private func makeImageCell(identifier: NSUserInterfaceItemIdentifier, image: NSImage?) -> NSTableCellView {
+        let cell = NSTableCellView()
+        cell.identifier = identifier
+
+        let imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.image = image
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.addSubview(imageView)
+        cell.imageView = imageView
+
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 20),
+            imageView.heightAnchor.constraint(equalToConstant: 20),
+            imageView.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        ])
+
+        return cell
+    }
+
+    private func makeTextCell(identifier: NSUserInterfaceItemIdentifier, text: String) -> NSTableCellView {
+        let cell = NSTableCellView()
+        cell.identifier = identifier
+
+        let textField = NSTextField(labelWithString: text)
+        textField.lineBreakMode = .byTruncatingMiddle
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.addSubview(textField)
+        cell.textField = textField
+
+        NSLayoutConstraint.activate([
+            textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        ])
+
+        return cell
+    }
+
+    private var selectedPinnedApp: PinnedApp? {
+        let selectedRow = launcherTableView.selectedRow
+        guard pinnedAppManager.pinnedApps.indices.contains(selectedRow) else {
+            return nil
+        }
+
+        return pinnedAppManager.pinnedApps[selectedRow]
+    }
+
+    private func updateRemoveButtonState() {
+        removePinnedAppButton.isEnabled = selectedPinnedApp != nil
     }
 
     @objc
@@ -382,5 +539,87 @@ final class SettingsView: NSView {
     @objc
     private func showOnAllMonitorsChanged(_ sender: NSButton) {
         settings.showOnAllMonitors = sender.state == .on
+    }
+
+    @objc
+    private func removePinnedApp(_ sender: NSButton) {
+        guard let pinnedApp = selectedPinnedApp else {
+            return
+        }
+
+        pinnedAppManager.unpin(bundleIdentifier: pinnedApp.bundleIdentifier)
+    }
+}
+
+extension SettingsView: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        pinnedAppManager.pinnedApps.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard pinnedAppManager.pinnedApps.indices.contains(row),
+              let tableColumn else {
+            return nil
+        }
+
+        let pinnedApp = pinnedAppManager.pinnedApps[row]
+
+        switch tableColumn.identifier {
+        case LauncherColumn.icon:
+            return makeImageCell(identifier: LauncherColumn.icon, image: pinnedApp.icon)
+        case LauncherColumn.name:
+            return makeTextCell(identifier: LauncherColumn.name, text: pinnedApp.name)
+        case LauncherColumn.bundleIdentifier:
+            return makeTextCell(identifier: LauncherColumn.bundleIdentifier, text: pinnedApp.bundleIdentifier)
+        default:
+            return nil
+        }
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        updateRemoveButtonState()
+    }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        let item = NSPasteboardItem()
+        item.setString(String(row), forType: Self.launcherPasteboardType)
+        return item
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        validateDrop info: any NSDraggingInfo,
+        proposedRow row: Int,
+        proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+        guard info.draggingSource as AnyObject? === tableView else {
+            return []
+        }
+
+        tableView.setDropRow(row, dropOperation: .above)
+        return .move
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        acceptDrop info: any NSDraggingInfo,
+        row: Int,
+        dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+        guard let pasteboardItem = info.draggingPasteboard.pasteboardItems?.first,
+              let sourceRowString = pasteboardItem.string(forType: Self.launcherPasteboardType),
+              let sourceRow = Int(sourceRowString) else {
+            return false
+        }
+
+        let destinationRow = sourceRow < row ? row - 1 : row
+        pinnedAppManager.reorder(from: sourceRow, to: destinationRow)
+
+        let selectedRow = min(max(destinationRow, 0), max(pinnedAppManager.pinnedApps.count - 1, 0))
+        if pinnedAppManager.pinnedApps.indices.contains(selectedRow) {
+            tableView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+        }
+
+        return true
     }
 }
