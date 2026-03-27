@@ -291,6 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panels.removeValue(forKey: displayID)
             contentViews.removeValue(forKey: displayID)
         }
+
+        windowManager.activeDisplayIDs = Set(panels.keys)
     }
 
     private func refreshPanelsForCurrentConfiguration() {

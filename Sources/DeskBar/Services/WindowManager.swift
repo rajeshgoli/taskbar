@@ -18,6 +18,7 @@ final class WindowManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     var taskbarHeight: CGFloat = 40
+    var activeDisplayIDs: Set<CGDirectDisplayID> = []
 
     private var authoritative: [CGWindowID: WindowInfo] = [:]
     private var authoritativeBounds: [CGWindowID: CGRect] = [:]
@@ -240,8 +241,11 @@ final class WindowManager: ObservableObject {
 
         guard let frame = axFrame(for: element) else { return }
 
-        // Find which display this window is on
-        guard let screen = ScreenGeometry.screen(for: frame) else { return }
+        // Find which display this window is on — only adjust on displays with a DeskBar panel
+        guard let screen = ScreenGeometry.screen(for: frame),
+              let displayID = ScreenGeometry.displayID(for: screen),
+              activeDisplayIDs.contains(displayID)
+        else { return }
         let displayBounds = ScreenGeometry.displayBounds(for: screen)
 
         // Only adjust windows that look "zoomed" — nearly full screen width
