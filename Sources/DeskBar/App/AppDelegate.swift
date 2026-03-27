@@ -52,7 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionsManager: permissions,
             settings: settings
         )
-        reconcilePanels()
+        refreshPanelsForCurrentConfiguration()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshPanelsForCurrentConfiguration()
+        }
 
         settingsWindowController = SettingsWindowController(
             settings: settings,
@@ -62,8 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         bindDockMode(settings: settings)
         configureSignalHandlers()
-        handleAccessibilityPermissionChange()
-        updatePanelVisibility()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -174,8 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.$showOnAllMonitors
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.reconcilePanels()
-                self?.updatePanelVisibility()
+                self?.refreshPanelsForCurrentConfiguration()
             }
             .store(in: &cancellables)
 
@@ -205,8 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reconcilePanels()
-            self?.updatePanelVisibility()
+            self?.refreshPanelsForCurrentConfiguration()
         }
 
         let workspaceCenter = NSWorkspace.shared.notificationCenter
@@ -278,6 +277,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panels.removeValue(forKey: displayID)
             contentViews.removeValue(forKey: displayID)
         }
+    }
+
+    private func refreshPanelsForCurrentConfiguration() {
+        reconcilePanels()
+        handleAccessibilityPermissionChange()
+        updatePanelVisibility()
     }
 
     private func updatePanelVisibility() {
