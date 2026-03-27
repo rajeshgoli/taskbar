@@ -1,21 +1,28 @@
 import AppKit
 import Combine
+import Darwin
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: TaskbarPanel?
     private var windowManager: WindowManager?
     private var permissionsManager: PermissionsManager?
     private var settings: TaskbarSettings?
+    private var dockManager: DockManager?
     private var blacklistManager: BlacklistManager?
     private var pinnedAppManager: PinnedAppManager?
     private var settingsWindowController: SettingsWindowController?
     private var contentView: TaskbarContentView?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
+    private var signalSources: [DispatchSourceSignal] = []
+    private var isHandlingTerminationSignal = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let settings = TaskbarSettings()
         self.settings = settings
+
+        let dockManager = DockManager()
+        self.dockManager = dockManager
 
         let blacklistManager = BlacklistManager()
         self.blacklistManager = blacklistManager
@@ -61,7 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        bindDockMode(settings: settings)
+        configureSignalHandlers()
         contentView.handleAccessibilityPermissionChange()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dockManager?.restoreDockState()
     }
 
     @objc
@@ -74,6 +87,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func quitApplication(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    private func bindDockMode(settings: TaskbarSettings) {
+        dockManager?.apply(mode: settings.dockMode)
+
+        settings.$dockMode
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] mode in
+                self?.dockManager?.apply(mode: mode)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func configureSignalHandlers() {
+        [SIGTERM, SIGINT].forEach { signalNumber in
+            signal(signalNumber, SIG_IGN)
+
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.dockManager?.restoreDockState()
+
+                guard !self.isHandlingTerminationSignal else {
+                    return
+                }
+
+                self.isHandlingTerminationSignal = true
+                NSApp.terminate(nil)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
     }
 
     private func configureStatusItem() {
