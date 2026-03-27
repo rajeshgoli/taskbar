@@ -152,10 +152,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        let horizontalPadding: CGFloat = 50
-        let titleWidth = titleLabel.isHidden ? 0 : titleLabel.intrinsicContentSize.width
-        let preferredWidth = min(maxWidth, horizontalPadding + titleWidth)
-        return NSSize(width: preferredWidth, height: 32)
+        return NSSize(width: maxWidth, height: 32)
     }
 
     override func updateTrackingAreas() {
@@ -281,7 +278,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
         addSubview(titleLabel)
         addSubview(dropIndicatorView)
 
-        let maxWidthConstraint = widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
+        let maxWidthConstraint = widthAnchor.constraint(equalToConstant: maxWidth)
         self.maxWidthConstraint = maxWidthConstraint
         let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
         let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
@@ -479,29 +476,44 @@ final class TaskButtonView: NSView, NSDraggingSource {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        if isAccessibilityAvailable {
-            menu.addItem(makeMenuItem(
-                title: "Close",
-                action: #selector(closeWindow(_:))
-            ))
-            menu.addItem(makeMenuItem(
-                title: "Minimize",
-                action: #selector(minimizeWindow(_:))
-            ))
-            menu.addItem(makeMenuItem(
-                title: "Hide",
-                action: #selector(hideApplication(_:))
-            ))
-        } else {
-            menu.addItem(makeMenuItem(
-                title: "Quit",
-                action: #selector(quitApplication(_:))
-            ))
+        // Window list section (Dock-style)
+        if isAccessibilityAvailable, let app = owningApplication {
+            let windows = accessibilityService.enumerateWindows(for: app)
+            if !windows.isEmpty {
+                let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                for axWindow in windows {
+                    let title = accessibilityService.windowTitle(for: axWindow) ?? "Untitled"
+                    let item = NSMenuItem(title: title, action: #selector(activateSpecificWindow(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = axWindow
+                    item.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
+                    item.image?.size = NSSize(width: 14, height: 14)
+                    // Checkmark on active window
+                    if app.processIdentifier == frontmostPID {
+                        var isFocused = false
+                        var focusedWindow: CFTypeRef?
+                        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+                        if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success {
+                            isFocused = (axWindow == (focusedWindow as! AXUIElement))
+                        }
+                        item.state = isFocused ? .on : .off
+                    }
+                    menu.addItem(item)
+                }
+                menu.addItem(.separator())
+            }
         }
+
+        // App actions
+        menu.addItem(makeMenuItem(title: "Show All Windows", action: #selector(showAllWindows(_:))))
+        menu.addItem(makeMenuItem(title: "Hide", action: #selector(hideApplication(_:))))
 
         menu.addItem(.separator())
         menu.addItem(makePinToLauncherMenuItem())
         menu.addItem(makeBlacklistMenuItem())
+
+        menu.addItem(.separator())
+        menu.addItem(makeMenuItem(title: "Quit", action: #selector(quitApplication(_:))))
 
         return menu
     }
@@ -588,6 +600,23 @@ final class TaskButtonView: NSView, NSDraggingSource {
     @objc
     private func hideApplication(_ sender: Any?) {
         owningApplication?.hide()
+    }
+
+    @objc
+    private func showAllWindows(_ sender: Any?) {
+        owningApplication?.unhide()
+        owningApplication?.activate(options: .activateAllWindows)
+    }
+
+    @objc
+    private func activateSpecificWindow(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              let obj = menuItem.representedObject else { return }
+        let axWindow = obj as! AXUIElement
+        let appElement = AXUIElementCreateApplication(windowInfo.pid)
+        _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, axWindow)
+        _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        owningApplication?.activate()
     }
 
     @objc

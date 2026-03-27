@@ -79,6 +79,10 @@ final class AccessibilityService {
         _ = AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
     }
 
+    func windowTitle(for element: AXUIElement) -> String? {
+        copyAttributeValue(for: element, attribute: kAXTitleAttribute as String) as? String
+    }
+
     func isMinimized(element: AXUIElement) -> Bool {
         guard let minimizedValue = copyAttributeValue(
             for: element,

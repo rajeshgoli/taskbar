@@ -67,14 +67,8 @@ final class LauncherButtonView: NSView {
             return
         }
 
-        switch state {
-        case .notRunning:
-            launchApplication()
-        case .runningWithVisibleWindows:
-            activateMostRecentWindow()
-        case .runningWithoutVisibleWindows:
-            _ = runningApplication?.activate(options: .activateAllWindows)
-        }
+        // Always launch a new instance (like Dock behavior)
+        launchApplication()
     }
 
     override func rightMouseDown(with event: NSEvent) {
