@@ -104,16 +104,16 @@ final class LauncherButtonView: NSView {
             widthAnchor.constraint(equalToConstant: 36),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -3),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 28),
             iconView.heightAnchor.constraint(equalToConstant: 28),
 
-            underlineView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            underlineView.bottomAnchor.constraint(equalTo: bottomAnchor),
             underlineView.centerXAnchor.constraint(equalTo: centerXAnchor),
             underlineView.widthAnchor.constraint(equalToConstant: 18),
-            underlineView.heightAnchor.constraint(equalToConstant: 3),
+            underlineView.heightAnchor.constraint(equalToConstant: 2),
 
-            dotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            dotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
             dotView.centerXAnchor.constraint(equalTo: centerXAnchor),
             dotView.widthAnchor.constraint(equalToConstant: 4),
             dotView.heightAnchor.constraint(equalToConstant: 4)
