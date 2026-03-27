@@ -8,6 +8,7 @@ final class TaskbarContentView: NSView {
 
     private let windowManager: WindowManager
     private let badgeMonitor: BadgeMonitor
+    private let appStateMonitor: AppStateMonitor
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let blacklistManager: BlacklistManager
@@ -27,15 +28,20 @@ final class TaskbarContentView: NSView {
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
+    private var localFlagsMonitor: Any?
+    private var globalFlagsMonitor: Any?
     private var expandedGroupID: String?
     private weak var expandedGroupView: NSView?
     private var groupedTaskOrderState = TaskZoneOrderingState()
     private var ungroupedTaskOrderState = TaskZoneOrderingState()
     private var taskItemViews: [String: NSView] = [:]
+    private var isActivityModeActive = false
+    private var previousBadgedBundleIdentifiers = Set<String>()
 
     init(
         windowManager: WindowManager,
         badgeMonitor: BadgeMonitor,
+        appStateMonitor: AppStateMonitor,
         permissionsManager: PermissionsManager,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
@@ -45,6 +51,7 @@ final class TaskbarContentView: NSView {
     ) {
         self.windowManager = windowManager
         self.badgeMonitor = badgeMonitor
+        self.appStateMonitor = appStateMonitor
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
@@ -74,6 +81,7 @@ final class TaskbarContentView: NSView {
         configureLayout()
         bindState()
         installCollapseMonitors()
+        installModifierMonitors()
         observePinRequests()
         updateTaskbarLayout()
         rebuildTaskZone()
@@ -91,6 +99,14 @@ final class TaskbarContentView: NSView {
 
         if let globalClickMonitor {
             NSEvent.removeMonitor(globalClickMonitor)
+        }
+
+        if let localFlagsMonitor {
+            NSEvent.removeMonitor(localFlagsMonitor)
+        }
+
+        if let globalFlagsMonitor {
+            NSEvent.removeMonitor(globalFlagsMonitor)
         }
     }
 
@@ -203,19 +219,27 @@ final class TaskbarContentView: NSView {
 
         badgeMonitor.$appBadges
             .receive(on: RunLoop.main)
+            .sink { [weak self] badges in
+                self?.handleBadgeUpdates(badges)
+                self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
+        appStateMonitor.$states
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.rebuildTaskZone()
             }
             .store(in: &cancellables)
 
-        settings.$groupByApp
+        settings.$groupingMode
             .receive(on: RunLoop.main)
-            .sink { [weak self] isEnabled in
+            .sink { [weak self] groupingMode in
                 guard let self else {
                     return
                 }
 
-                if !isEnabled {
+                if groupingMode == .never {
                     self.expandedGroupID = nil
                 }
 
@@ -227,6 +251,35 @@ final class TaskbarContentView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
+        settings.$flashAttentionIndicators
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
+        settings.$showProgressIndicators
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
+        settings.$enableActivityMode
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnabled in
+                guard let self else {
+                    return
+                }
+
+                if !isEnabled {
+                    self.isActivityModeActive = false
+                }
+
+                self.rebuildTaskZone()
             }
             .store(in: &cancellables)
 
@@ -262,8 +315,9 @@ final class TaskbarContentView: NSView {
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let scopedWindows = scopedVisibleWindows()
+        let shouldGroupWindows = shouldGroupWindows(scopedWindows)
 
-        if settings.groupByApp {
+        if shouldGroupWindows {
             let items = orderedGroupedTaskItems(from: scopedWindows)
             var desiredViews: [NSView] = []
             var retainedItemIDs = Set<String>()
@@ -289,7 +343,9 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        expandedGroupID = nil
+        if !shouldGroupWindows {
+            expandedGroupID = nil
+        }
         let orderedWindows = orderedUngroupedWindows(from: scopedWindows)
         let desiredViews = orderedWindows.map { window in
             taskButtonView(
@@ -337,7 +393,9 @@ final class TaskbarContentView: NSView {
                 windowInfo: window,
                 isActive: window.pid == frontmostPID,
                 hasBadge: hasBadge(for: window.bundleIdentifier),
-                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
+                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                runtimeState: runtimeState(for: window.pid),
+                showsActivityOverlay: settings.enableActivityMode && isActivityModeActive
             )
             return existingView
         }
@@ -349,6 +407,8 @@ final class TaskbarContentView: NSView {
             isActive: window.pid == frontmostPID,
             hasBadge: hasBadge(for: window.bundleIdentifier),
             isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+            runtimeState: runtimeState(for: window.pid),
+            showsActivityOverlay: settings.enableActivityMode && isActivityModeActive,
             settings: settings,
             blacklistManager: blacklistManager,
             dragConfiguration: dragItemID.flatMap { [self] in
@@ -383,7 +443,9 @@ final class TaskbarContentView: NSView {
                     frontmostPID: frontmostPID,
                     isActive: group.windows.contains { $0.pid == frontmostPID },
                     hasBadge: hasBadge(for: group.id),
-                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
+                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                    groupRuntimeState: runtimeState(for: group),
+                    showsActivityOverlay: settings.enableActivityMode && isActivityModeActive
                 )
                 return existingView
             }
@@ -396,11 +458,16 @@ final class TaskbarContentView: NSView {
                 isActive: group.windows.contains { $0.pid == frontmostPID },
                 hasBadge: hasBadge(for: group.id),
                 isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                groupRuntimeState: runtimeState(for: group),
+                showsActivityOverlay: settings.enableActivityMode && isActivityModeActive,
                 settings: settings,
                 blacklistManager: blacklistManager,
                 dragConfiguration: makeTaskDragConfiguration(for: groupedTaskItemID(forGroupID: group.id)),
                 badgeProvider: { [weak self] bundleIdentifier in
                     self?.hasBadge(for: bundleIdentifier) ?? false
+                },
+                runtimeStateProvider: { [weak self] pid in
+                    self?.runtimeState(for: pid) ?? AppRuntimeState()
                 },
                 activationHandler: { [weak self] in
                     self?.toggleGroupExpansion(for: group.id)
@@ -596,7 +663,7 @@ final class TaskbarContentView: NSView {
             return false
         }
 
-        if settings.groupByApp {
+        if shouldGroupWindows(scopedVisibleWindows()) {
             groupedTaskOrderState.applyManualOrder(reorderedIDs, userPositionedItemID: payload.itemID)
         } else {
             ungroupedTaskOrderState.applyManualOrder(reorderedIDs, userPositionedItemID: payload.itemID)
@@ -609,7 +676,7 @@ final class TaskbarContentView: NSView {
     private func currentTaskOrderIDs() -> [String] {
         let scopedWindows = scopedVisibleWindows()
 
-        if settings.groupByApp {
+        if shouldGroupWindows(scopedWindows) {
             let items = groupedTaskItems(from: scopedWindows)
             return groupedTaskOrderState.arrangedIDs(for: items.map(groupedTaskItemID(for:)))
         }
@@ -682,6 +749,77 @@ final class TaskbarContentView: NSView {
         return badgeMonitor.appBadges[bundleIdentifier] ?? false
     }
 
+    private func runtimeState(for pid: pid_t) -> AppRuntimeState {
+        var state = appStateMonitor.state(for: pid)
+
+        if !settings.flashAttentionIndicators {
+            state.needsAttention = false
+        }
+
+        if !settings.showProgressIndicators {
+            state.progressFraction = nil
+        }
+
+        return state
+    }
+
+    private func runtimeState(for group: AppGroup) -> AppRuntimeState {
+        let memberStates = group.windows.map { runtimeState(for: $0.pid) }
+        let cpuSamples = memberStates.compactMap(\.cpuPercent)
+        let memorySamples = memberStates.compactMap(\.memoryMB)
+
+        return AppRuntimeState(
+            isLaunching: memberStates.contains(where: \.isLaunching),
+            needsAttention: memberStates.contains(where: \.needsAttention),
+            cpuPercent: cpuSamples.isEmpty ? nil : cpuSamples.reduce(0, +),
+            memoryMB: memorySamples.isEmpty ? nil : memorySamples.reduce(0, +),
+            progressFraction: memberStates.compactMap(\.normalizedProgressFraction).max()
+        )
+    }
+
+    private func shouldGroupWindows(_ windows: [WindowInfo]) -> Bool {
+        switch settings.groupingMode {
+        case .never:
+            return false
+        case .always:
+            return true
+        case .automatic:
+            let groupIDs = windows.map(resolvedGroupID(for:))
+            guard Set(groupIDs).count < groupIDs.count else {
+                return false
+            }
+
+            return estimatedUngroupedWidth(for: windows) > availableTaskZoneWidth
+        }
+    }
+
+    private var availableTaskZoneWidth: CGFloat {
+        let width = taskZoneScrollView.contentSize.width > 0 ? taskZoneScrollView.contentSize.width : taskZoneScrollView.bounds.width
+        return max(width, 320)
+    }
+
+    private func estimatedUngroupedWidth(for windows: [WindowInfo]) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: settings.titleFontSize)
+        let titlePadding: CGFloat = settings.showTitles ? 56 : 40
+
+        return windows.reduce(0) { partialResult, window in
+            let resolvedTitle = window.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? window.appName : window.title
+            let textWidth: CGFloat
+
+            if settings.showTitles {
+                let attributes: [NSAttributedString.Key: Any] = [.font: font]
+                textWidth = min(
+                    ceil((resolvedTitle as NSString).size(withAttributes: attributes).width) + titlePadding,
+                    settings.maxTaskWidth
+                )
+            } else {
+                textWidth = titlePadding
+            }
+
+            return partialResult + textWidth + taskZoneStackView.spacing
+        }
+    }
+
     private func toggleGroupExpansion(for groupID: String) {
         expandedGroupID = expandedGroupID == groupID ? nil : groupID
         rebuildTaskZone()
@@ -707,6 +845,25 @@ final class TaskbarContentView: NSView {
             .store(in: &cancellables)
     }
 
+    private func handleBadgeUpdates(_ badges: [String: Bool]) {
+        let badgedBundleIdentifiers = Set(badges.compactMap { key, value in value ? key : nil })
+        let newlyBadgedBundleIdentifiers = badgedBundleIdentifiers.subtracting(previousBadgedBundleIdentifiers)
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+        for bundleIdentifier in newlyBadgedBundleIdentifiers {
+            guard
+                let application = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }),
+                application.processIdentifier != frontmostPID
+            else {
+                continue
+            }
+
+            appStateMonitor.requestAttention(for: application.processIdentifier)
+        }
+
+        previousBadgedBundleIdentifiers = badgedBundleIdentifiers
+    }
+
     private func installCollapseMonitors() {
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
@@ -720,6 +877,31 @@ final class TaskbarContentView: NSView {
                 self?.collapseExpandedGroup()
             }
         }
+    }
+
+    private func installModifierMonitors() {
+        let eventMask: NSEvent.EventTypeMask = [.flagsChanged]
+
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
+            self?.handleModifierFlags(event.modifierFlags)
+            return event
+        }
+
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] event in
+            DispatchQueue.main.async {
+                self?.handleModifierFlags(event.modifierFlags)
+            }
+        }
+    }
+
+    private func handleModifierFlags(_ modifierFlags: NSEvent.ModifierFlags) {
+        let nextIsActive = settings.enableActivityMode && modifierFlags.contains(.control)
+        guard nextIsActive != isActivityModeActive else {
+            return
+        }
+
+        isActivityModeActive = nextIsActive
+        rebuildTaskZone()
     }
 
     private func handleLocalClick(_ event: NSEvent) {
@@ -969,14 +1151,22 @@ private struct TaskZoneOrderingState {
 private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
     private var appGroup: AppGroup
     private var hasBadge: Bool
+    private var runtimeState: AppRuntimeState
+    private var showsActivityOverlay: Bool
     private let settings: TaskbarSettings
     private let activationHandler: () -> Void
     private let dragConfiguration: TaskButtonDragConfiguration?
     private let iconView = NSImageView()
+    private let statusIndicatorView = NSView()
+    private let activityBadgeView = NSVisualEffectView()
+    private let activityLabel = NSTextField(labelWithString: "")
     private let badgeView = NSView()
     private let badgeLabel = NSTextField(labelWithString: "")
+    private let progressTrackView = NSView()
+    private let progressFillView = NSView()
     private let dropIndicatorView = NSView()
     private var trackingAreaRef: NSTrackingArea?
+    private var progressWidthConstraint: NSLayoutConstraint?
     private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
     private var dropIndicatorTrailingConstraint: NSLayoutConstraint?
     private var mouseDownLocation: NSPoint?
@@ -996,6 +1186,8 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
     init(
         appGroup: AppGroup,
         hasBadge: Bool,
+        runtimeState: AppRuntimeState,
+        showsActivityOverlay: Bool,
         isActive: Bool,
         settings: TaskbarSettings,
         dragConfiguration: TaskButtonDragConfiguration?,
@@ -1003,6 +1195,8 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
     ) {
         self.appGroup = appGroup
         self.hasBadge = hasBadge
+        self.runtimeState = runtimeState
+        self.showsActivityOverlay = showsActivityOverlay
         self.isActive = isActive
         self.settings = settings
         self.dragConfiguration = dragConfiguration
@@ -1027,7 +1221,16 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 40, height: 32)
+        if showsActivityOverlay, runtimeState.activitySummary != nil {
+            return NSSize(width: 140, height: 32)
+        }
+
+        return NSSize(width: 40, height: 32)
+    }
+
+    override func layout() {
+        super.layout()
+        updateProgressWidth()
     }
 
     override func updateTrackingAreas() {
@@ -1096,6 +1299,24 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
+        statusIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        statusIndicatorView.wantsLayer = true
+        statusIndicatorView.layer?.cornerRadius = 1.5
+        statusIndicatorView.isHidden = true
+
+        activityBadgeView.translatesAutoresizingMaskIntoConstraints = false
+        activityBadgeView.material = .toolTip
+        activityBadgeView.blendingMode = .withinWindow
+        activityBadgeView.state = .active
+        activityBadgeView.wantsLayer = true
+        activityBadgeView.layer?.cornerRadius = 5
+        activityBadgeView.layer?.masksToBounds = true
+        activityBadgeView.isHidden = true
+
+        activityLabel.translatesAutoresizingMaskIntoConstraints = false
+        activityLabel.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
+        activityLabel.textColor = .secondaryLabelColor
+
         badgeView.translatesAutoresizingMaskIntoConstraints = false
         badgeView.wantsLayer = true
         badgeView.layer?.backgroundColor = NSColor.systemRed.cgColor
@@ -1106,30 +1327,62 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
         badgeLabel.textColor = .white
         badgeLabel.alignment = .center
 
+        progressTrackView.translatesAutoresizingMaskIntoConstraints = false
+        progressTrackView.wantsLayer = true
+        progressTrackView.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        progressTrackView.layer?.cornerRadius = 1
+        progressTrackView.isHidden = true
+
+        progressFillView.translatesAutoresizingMaskIntoConstraints = false
+        progressFillView.wantsLayer = true
+        progressFillView.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        progressFillView.layer?.cornerRadius = 1
+
         dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         dropIndicatorView.wantsLayer = true
         dropIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         dropIndicatorView.layer?.cornerRadius = 1
         dropIndicatorView.isHidden = true
 
+        addSubview(statusIndicatorView)
         addSubview(iconView)
+        addSubview(activityBadgeView)
+        activityBadgeView.addSubview(activityLabel)
         addSubview(badgeView)
         badgeView.addSubview(badgeLabel)
+        addSubview(progressTrackView)
+        progressTrackView.addSubview(progressFillView)
         addSubview(dropIndicatorView)
 
+        let progressWidthConstraint = progressFillView.widthAnchor.constraint(equalToConstant: 0)
+        self.progressWidthConstraint = progressWidthConstraint
         let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
         let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
         self.dropIndicatorLeadingConstraint = dropIndicatorLeadingConstraint
         self.dropIndicatorTrailingConstraint = dropIndicatorTrailingConstraint
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 40),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
             heightAnchor.constraint(equalToConstant: 32),
+
+            statusIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            statusIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            statusIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            statusIndicatorView.widthAnchor.constraint(equalToConstant: 3),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 24),
             iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            activityBadgeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            activityBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            activityBadgeView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+
+            activityLabel.leadingAnchor.constraint(equalTo: activityBadgeView.leadingAnchor, constant: 5),
+            activityLabel.trailingAnchor.constraint(equalTo: activityBadgeView.trailingAnchor, constant: -5),
+            activityLabel.topAnchor.constraint(equalTo: activityBadgeView.topAnchor, constant: 2),
+            activityLabel.bottomAnchor.constraint(equalTo: activityBadgeView.bottomAnchor, constant: -2),
 
             badgeView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             badgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
@@ -1139,6 +1392,16 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
             badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 4),
             badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -4),
             badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
+
+            progressTrackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            progressTrackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            progressTrackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            progressTrackView.heightAnchor.constraint(equalToConstant: 2),
+
+            progressFillView.leadingAnchor.constraint(equalTo: progressTrackView.leadingAnchor),
+            progressFillView.topAnchor.constraint(equalTo: progressTrackView.topAnchor),
+            progressFillView.bottomAnchor.constraint(equalTo: progressTrackView.bottomAnchor),
+            progressWidthConstraint,
 
             dropIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             dropIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -1153,20 +1416,34 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
             iconView.image = nil
         }
         badgeLabel.stringValue = "\(appGroup.windowCount)"
-        toolTip = "\(appGroup.appName) (\(appGroup.windowCount) windows)"
+        toolTip = resolvedToolTip()
+        updateStatusIndicator()
+        updateActivityBadge()
+        updateProgressIndicator()
         updateBackgroundColor()
     }
 
-    func update(appGroup: AppGroup, hasBadge: Bool, isActive: Bool) {
+    func update(
+        appGroup: AppGroup,
+        hasBadge: Bool,
+        runtimeState: AppRuntimeState,
+        showsActivityOverlay: Bool,
+        isActive: Bool
+    ) {
         self.appGroup = appGroup
         self.hasBadge = hasBadge
+        self.runtimeState = runtimeState
+        self.showsActivityOverlay = showsActivityOverlay
         self.isActive = isActive
         updateAppearance()
+        invalidateIntrinsicContentSize()
     }
 
     private func updateBackgroundColor() {
         if isActive {
             layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+        } else if runtimeState.needsAttention {
+            layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.14).cgColor
         } else if isHovered {
             layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         } else {
@@ -1285,6 +1562,82 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         updateDropIndicator(nil)
     }
+
+    private func resolvedToolTip() -> String {
+        var lines = ["\(appGroup.appName) (\(appGroup.windowCount) windows)"]
+
+        if runtimeState.isLaunching {
+            lines.append("Launching")
+        }
+
+        if let progressFraction = runtimeState.normalizedProgressFraction {
+            lines.append("Progress: \(Int((progressFraction * 100).rounded()))%")
+        }
+
+        if let activitySummary = runtimeState.activitySummary {
+            lines.append(activitySummary)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func updateStatusIndicator() {
+        let isVisible = runtimeState.needsAttention || runtimeState.isLaunching
+        statusIndicatorView.isHidden = !isVisible
+
+        guard isVisible else {
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+            return
+        }
+
+        let color = runtimeState.needsAttention ? NSColor.systemOrange : NSColor.systemBlue
+        statusIndicatorView.layer?.backgroundColor = color.cgColor
+
+        if runtimeState.needsAttention {
+            if statusIndicatorView.layer?.animation(forKey: "deskbar.attention") == nil {
+                let animation = CABasicAnimation(keyPath: "opacity")
+                animation.fromValue = 1
+                animation.toValue = 0.25
+                animation.duration = 0.55
+                animation.autoreverses = true
+                animation.repeatCount = .infinity
+                statusIndicatorView.layer?.add(animation, forKey: "deskbar.attention")
+            }
+        } else {
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+        }
+    }
+
+    private func updateActivityBadge() {
+        guard showsActivityOverlay, let activitySummary = runtimeState.activitySummary else {
+            activityBadgeView.isHidden = true
+            return
+        }
+
+        activityLabel.stringValue = activitySummary
+        activityBadgeView.isHidden = false
+    }
+
+    private func updateProgressIndicator() {
+        guard let progressFraction = runtimeState.normalizedProgressFraction else {
+            progressTrackView.isHidden = true
+            return
+        }
+
+        progressTrackView.isHidden = false
+        progressFillView.layer?.backgroundColor = progressFraction >= 1 ? NSColor.systemBlue.cgColor : NSColor.systemGreen.cgColor
+        updateProgressWidth()
+    }
+
+    private func updateProgressWidth() {
+        guard let progressFraction = runtimeState.normalizedProgressFraction else {
+            progressWidthConstraint?.constant = 0
+            return
+        }
+
+        let trackWidth = max(progressTrackView.bounds.width, bounds.width - 12)
+        progressWidthConstraint?.constant = max(2, trackWidth * progressFraction)
+    }
 }
 
 private final class TaskZoneGroupContainerView: NSView {
@@ -1302,10 +1655,13 @@ private final class TaskZoneGroupContainerView: NSView {
         isActive: Bool,
         hasBadge: Bool,
         isAccessibilityAvailable: Bool,
+        groupRuntimeState: AppRuntimeState,
+        showsActivityOverlay: Bool,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         dragConfiguration: TaskButtonDragConfiguration,
         badgeProvider: @escaping (String?) -> Bool,
+        runtimeStateProvider: @escaping (pid_t) -> AppRuntimeState,
         activationHandler: @escaping () -> Void,
         windowActivationHandler: @escaping (WindowInfo) -> Void
     ) {
@@ -1316,11 +1672,15 @@ private final class TaskZoneGroupContainerView: NSView {
         headerView = TaskZoneGroupButtonView(
             appGroup: group,
             hasBadge: hasBadge,
+            runtimeState: groupRuntimeState,
+            showsActivityOverlay: showsActivityOverlay,
             isActive: isActive,
             settings: settings,
             dragConfiguration: dragConfiguration,
             activationHandler: activationHandler
         )
+        self.runtimeStateProvider = runtimeStateProvider
+        self.showsActivityOverlay = showsActivityOverlay
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -1345,7 +1705,9 @@ private final class TaskZoneGroupContainerView: NSView {
             frontmostPID: frontmostPID,
             isActive: isActive,
             hasBadge: hasBadge,
-            isAccessibilityAvailable: isAccessibilityAvailable
+            isAccessibilityAvailable: isAccessibilityAvailable,
+            groupRuntimeState: groupRuntimeState,
+            showsActivityOverlay: showsActivityOverlay
         )
     }
 
@@ -1354,14 +1716,26 @@ private final class TaskZoneGroupContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private let runtimeStateProvider: (pid_t) -> AppRuntimeState
+    private var showsActivityOverlay: Bool
+
     func update(
         group: AppGroup,
         frontmostPID: pid_t?,
         isActive: Bool,
         hasBadge: Bool,
-        isAccessibilityAvailable: Bool
+        isAccessibilityAvailable: Bool,
+        groupRuntimeState: AppRuntimeState,
+        showsActivityOverlay: Bool
     ) {
-        headerView.update(appGroup: group, hasBadge: hasBadge, isActive: isActive)
+        self.showsActivityOverlay = showsActivityOverlay
+        headerView.update(
+            appGroup: group,
+            hasBadge: hasBadge,
+            runtimeState: groupRuntimeState,
+            showsActivityOverlay: showsActivityOverlay,
+            isActive: isActive
+        )
 
         var desiredViews: [NSView] = [headerView]
         var retainedChildIDs = Set<String>()
@@ -1376,7 +1750,9 @@ private final class TaskZoneGroupContainerView: NSView {
                         windowInfo: window,
                         isActive: window.pid == frontmostPID,
                         hasBadge: badgeProvider(window.bundleIdentifier),
-                        isAccessibilityAvailable: isAccessibilityAvailable
+                        isAccessibilityAvailable: isAccessibilityAvailable,
+                        runtimeState: runtimeStateProvider(window.pid),
+                        showsActivityOverlay: showsActivityOverlay
                     )
                     buttonView = existingView
                 } else {
@@ -1385,6 +1761,8 @@ private final class TaskZoneGroupContainerView: NSView {
                         isActive: window.pid == frontmostPID,
                         hasBadge: badgeProvider(window.bundleIdentifier),
                         isAccessibilityAvailable: isAccessibilityAvailable,
+                        runtimeState: runtimeStateProvider(window.pid),
+                        showsActivityOverlay: showsActivityOverlay,
                         settings: settings,
                         blacklistManager: blacklistManager
                     ) { [windowActivationHandler] windowInfo in

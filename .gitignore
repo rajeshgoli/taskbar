@@ -2,3 +2,4 @@
 .DS_Store
 *.xcodeproj/
 .swiftpm/
+.claude/workspace.lock
