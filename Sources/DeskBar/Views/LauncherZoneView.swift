@@ -261,8 +261,6 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     private let dragConfiguration: TaskButtonDragConfiguration?
 
     private let iconView = NSImageView()
-    private let underlineView = NSView()
-    private let dotView = NSView()
     private let dropIndicatorView = NSView()
 
     private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
@@ -316,6 +314,8 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: 36, height: 42)
@@ -377,16 +377,6 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
-        underlineView.wantsLayer = true
-        underlineView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        underlineView.layer?.cornerRadius = 1.5
-        underlineView.translatesAutoresizingMaskIntoConstraints = false
-
-        dotView.wantsLayer = true
-        dotView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        dotView.layer?.cornerRadius = 2
-        dotView.translatesAutoresizingMaskIntoConstraints = false
-
         dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         dropIndicatorView.wantsLayer = true
         dropIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
@@ -394,8 +384,6 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         dropIndicatorView.isHidden = true
 
         addSubview(iconView)
-        addSubview(underlineView)
-        addSubview(dotView)
         addSubview(dropIndicatorView)
 
         let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
@@ -408,19 +396,9 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
             heightAnchor.constraint(equalToConstant: 42),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.topAnchor.constraint(equalTo: topAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 32),
-            iconView.heightAnchor.constraint(equalToConstant: 32),
-
-            underlineView.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
-            underlineView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            underlineView.widthAnchor.constraint(equalToConstant: 20),
-            underlineView.heightAnchor.constraint(equalToConstant: 3),
-
-            dotView.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
-            dotView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            dotView.widthAnchor.constraint(equalToConstant: 4),
-            dotView.heightAnchor.constraint(equalToConstant: 4),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
 
             dropIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             dropIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -431,8 +409,6 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     private func updateAppearance() {
         toolTip = pinnedApp.name
         iconView.image = displayIcon()
-        underlineView.isHidden = state != .runningWithVisibleWindows
-        dotView.isHidden = state != .runningWithoutVisibleWindows
     }
 
     private func displayIcon() -> NSImage? {
