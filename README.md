@@ -6,9 +6,9 @@ A native macOS taskbar replacement built with Swift and AppKit. Sits at the bott
 
 ## Why
 
-The third-party taskbar app I was using had a suspicious bundle ID and was silently disabling system keyboard shortcuts (Cmd+Tab, Cmd+Space, Mission Control) on every boot by writing to `com.apple.symbolichotkeys.plist`. Rather than trust it, I built my own.
+macOS doesn't have a Windows-style taskbar — the Dock shows apps, not windows. If you work with many windows across multiple apps, switching between them means Cmd+Tab, Mission Control, or clicking through stacks. DeskBar gives you a persistent bottom bar with one button per window, so you always know what's open and can switch with a single click.
 
-DeskBar does **not** touch system shortcuts. Ever.
+Lightweight, native, no external dependencies. Does not modify any system settings or shortcuts.
 
 ## Features
 
