@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             blacklistManager: blacklistManager,
             pinnedAppManager: pinnedAppManager
         )
+        wm.taskbarHeight = settings.taskbarHeight
         windowManager = wm
 
         let badgeMonitor = BadgeMonitor()
@@ -181,6 +182,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshPanelsForCurrentConfiguration()
+            }
+            .store(in: &cancellables)
+
+        settings.$taskbarHeight
+            .receive(on: RunLoop.main)
+            .sink { [weak self] height in
+                self?.windowManager?.taskbarHeight = height
             }
             .store(in: &cancellables)
 
