@@ -10,6 +10,8 @@ final class LauncherZoneView: NSStackView {
     private let buttonsStackView = NSStackView()
     private let dividerView = NSView()
     private var cancellables = Set<AnyCancellable>()
+    private var iconCache: [String: NSImage] = [:]
+    private var rebuildScheduled = false
 
     init(
         settings: TaskbarSettings,
@@ -43,6 +45,7 @@ final class LauncherZoneView: NSStackView {
     }
 
     func refresh() {
+        iconCache.removeAll()
         rebuildButtons()
     }
 
@@ -69,32 +72,43 @@ final class LauncherZoneView: NSStackView {
         ])
     }
 
+    private func scheduleRebuild() {
+        guard !rebuildScheduled else { return }
+        rebuildScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.rebuildScheduled else { return }
+            self.rebuildScheduled = false
+            self.rebuildButtons()
+        }
+    }
+
     private func bindState() {
         settings.$showLaunchpadButton
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.rebuildButtons()
+                self?.scheduleRebuild()
             }
             .store(in: &cancellables)
 
         settings.$dragReorder
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.rebuildButtons()
+                self?.scheduleRebuild()
             }
             .store(in: &cancellables)
 
         pinnedAppManager.$pinnedApps
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.rebuildButtons()
+                self?.iconCache.removeAll()
+                self?.scheduleRebuild()
             }
             .store(in: &cancellables)
 
         windowManager.$windows
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.rebuildButtons()
+                self?.scheduleRebuild()
             }
             .store(in: &cancellables)
 
@@ -111,10 +125,32 @@ final class LauncherZoneView: NSStackView {
             workspaceNotifications.publisher(for: name)
                 .receive(on: RunLoop.main)
                 .sink { [weak self] _ in
-                    self?.rebuildButtons()
+                    self?.scheduleRebuild()
                 }
                 .store(in: &cancellables)
         }
+    }
+
+    private func cachedIcon(for pinnedApp: PinnedApp, runningApplication: NSRunningApplication?) -> NSImage? {
+        if let cached = iconCache[pinnedApp.bundleIdentifier] {
+            return cached
+        }
+
+        let icon: NSImage?
+        if let data = pinnedApp.iconData {
+            icon = NSImage(data: data)?.scaled(to: NSSize(width: 32, height: 32))
+        } else if let appIcon = runningApplication?.icon {
+            icon = appIcon.scaled(to: NSSize(width: 32, height: 32))
+        } else if let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: pinnedApp.bundleIdentifier) {
+            icon = NSWorkspace.shared.icon(forFile: applicationURL.path).scaled(to: NSSize(width: 32, height: 32))
+        } else {
+            icon = nil
+        }
+
+        if let icon {
+            iconCache[pinnedApp.bundleIdentifier] = icon
+        }
+        return icon
     }
 
     private func rebuildButtons() {
@@ -143,11 +179,15 @@ final class LauncherZoneView: NSStackView {
                     !$0.isHidden
             }
 
+            let runningApp = runningApplicationsByBundleIdentifier[pinnedApp.bundleIdentifier]
+            let icon = cachedIcon(for: pinnedApp, runningApplication: runningApp)
+
             let buttonView = LauncherZoneButtonView(
                 pinnedApp: pinnedApp,
                 visibleLocalWindows: visibleLocalWindows,
-                runningApplication: runningApplicationsByBundleIdentifier[pinnedApp.bundleIdentifier],
+                runningApplication: runningApp,
                 settings: settings,
+                cachedIcon: icon,
                 dragConfiguration: makeLauncherDragConfiguration(for: pinnedApp.bundleIdentifier)
             ) { [weak self] in
                 self?.pinnedAppManager.unpin(bundleIdentifier: pinnedApp.bundleIdentifier)
@@ -256,6 +296,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     private let visibleLocalWindows: [WindowInfo]
     private let runningApplication: NSRunningApplication?
     private let settings: TaskbarSettings
+    private let cachedIcon: NSImage?
     private let unpinHandler: () -> Void
     private let accessibilityService: AccessibilityService
     private let dragConfiguration: TaskButtonDragConfiguration?
@@ -285,6 +326,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         visibleLocalWindows: [WindowInfo],
         runningApplication: NSRunningApplication?,
         settings: TaskbarSettings,
+        cachedIcon: NSImage? = nil,
         accessibilityService: AccessibilityService = AccessibilityService(),
         dragConfiguration: TaskButtonDragConfiguration?,
         unpinHandler: @escaping () -> Void
@@ -293,6 +335,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         self.visibleLocalWindows = visibleLocalWindows
         self.runningApplication = runningApplication
         self.settings = settings
+        self.cachedIcon = cachedIcon
         self.accessibilityService = accessibilityService
         self.dragConfiguration = dragConfiguration
         self.unpinHandler = unpinHandler
@@ -422,19 +465,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     }
 
     private func resolvedIcon() -> NSImage? {
-        if let icon = pinnedApp.icon {
-            return icon.scaled(to: NSSize(width: 32, height: 32))
-        }
-
-        if let icon = runningApplication?.icon {
-            return icon.scaled(to: NSSize(width: 32, height: 32))
-        }
-
-        guard let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: pinnedApp.bundleIdentifier) else {
-            return nil
-        }
-
-        return NSWorkspace.shared.icon(forFile: applicationURL.path).scaled(to: NSSize(width: 32, height: 32))
+        return cachedIcon
     }
 
     private func launchApplication() {
