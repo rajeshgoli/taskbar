@@ -18,7 +18,9 @@ final class WindowManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     private var authoritative: [CGWindowID: WindowInfo] = [:]
+    private var authoritativeBounds: [CGWindowID: CGRect] = [:]
     private var provisional: [String: WindowInfo] = [:]
+    private var provisionalBounds: [String: CGRect] = [:]
     private var provisionalElements: [String: AXUIElement] = [:]
     private var promotionWorkItems: [String: DispatchWorkItem] = [:]
 
@@ -69,11 +71,7 @@ final class WindowManager: ObservableObject {
             $0.activationPolicy == .regular && !isBlacklisted(bundleIdentifier: $0.bundleIdentifier)
         }
         let applicationsByPID = Dictionary(uniqueKeysWithValues: regularApplications.map { ($0.processIdentifier, $0) })
-        let displayBounds = currentDisplayBounds()
-        let cgSnapshots = fetchCGWindowSnapshots(
-            displayBounds: displayBounds,
-            applicationsByPID: applicationsByPID
-        )
+        let cgSnapshots = fetchCGWindowSnapshots(applicationsByPID: applicationsByPID)
 
         var nextAuthoritative: [CGWindowID: WindowInfo] = Dictionary(
             uniqueKeysWithValues: cgSnapshots.map { snapshot in
@@ -94,6 +92,9 @@ final class WindowManager: ObservableObject {
                 return (snapshot.id, info)
             }
         )
+        var nextAuthoritativeBounds = Dictionary(
+            uniqueKeysWithValues: cgSnapshots.map { ($0.id, $0.bounds) }
+        )
 
         var visibleProvisionalKeys = Set<String>()
 
@@ -101,7 +102,10 @@ final class WindowManager: ObservableObject {
             let axWindows = accessibilityService.enumerateWindows(for: application)
 
             for axWindow in axWindows {
-                guard isEligibleAXWindow(axWindow, displayBounds: displayBounds) else {
+                guard
+                    let frame = axFrame(for: axWindow),
+                    isEligibleAXWindow(axWindow, frame: frame)
+                else {
                     continue
                 }
 
@@ -134,9 +138,11 @@ final class WindowManager: ObservableObject {
                         windowID: windowID
                     )
                     nextAuthoritative[windowID] = merged
+                    nextAuthoritativeBounds[windowID] = nextAuthoritativeBounds[windowID] ?? frame
                     removeProvisionalWindow(forKey: provisionalKey)
                 } else {
                     provisional[provisionalKey] = baseInfo
+                    provisionalBounds[provisionalKey] = frame
                     provisionalElements[provisionalKey] = axWindow
                     schedulePromotionRetry(for: provisionalKey)
                 }
@@ -148,7 +154,65 @@ final class WindowManager: ObservableObject {
         }
 
         authoritative = nextAuthoritative
+        authoritativeBounds = nextAuthoritativeBounds
         publishWindows()
+    }
+
+    func windows(on screen: NSScreen) -> [WindowInfo] {
+        windows(onDisplay: ScreenGeometry.displayBounds(for: screen))
+    }
+
+    func windows(onDisplay displayBounds: CGRect) -> [WindowInfo] {
+        windows.filter { window in
+            guard let bounds = bounds(for: window) else {
+                return false
+            }
+
+            return ScreenGeometry.isWindow(bounds: bounds, onDisplay: displayBounds)
+        }
+    }
+
+    func visibleWindows(on screen: NSScreen) -> [WindowInfo] {
+        visibleWindows(onDisplay: ScreenGeometry.displayBounds(for: screen))
+    }
+
+    func visibleWindows(onDisplay displayBounds: CGRect) -> [WindowInfo] {
+        let scopedWindows = windows(onDisplay: displayBounds)
+        let visibleWindowPIDs = Self.visibleWindowPIDs(from: scopedWindows)
+        return scopedWindows.filter { visibleWindowPIDs.contains($0.pid) }
+    }
+
+    func trayApplications(on screen: NSScreen) -> [NSRunningApplication] {
+        let displayBounds = ScreenGeometry.displayBounds(for: screen)
+        let scopedWindows = windows(onDisplay: displayBounds)
+        let visibleWindowPIDs = Self.visibleWindowPIDs(from: scopedWindows)
+        let runningApplications = regularRunningApplications()
+        let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let trayCandidates = Self.trayApplicationCandidates(
+            from: runningApplications.map {
+                RunningApplicationCandidate(
+                    pid: $0.processIdentifier,
+                    bundleIdentifier: $0.bundleIdentifier,
+                    name: $0.localizedName ?? $0.bundleIdentifier ?? "Unknown"
+                )
+            },
+            visibleWindowPIDs: visibleWindowPIDs,
+            pinnedBundleIdentifiers: Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier)),
+            blacklistedBundleIdentifiers: blacklistManager.blacklistedBundleIDs,
+            currentBundleIdentifier: Bundle.main.bundleIdentifier
+        )
+
+        return trayCandidates.compactMap { applicationsByPID[$0.pid] }
+    }
+
+    func hasFullScreenWindow(on screen: NSScreen) -> Bool {
+        let displayBounds = ScreenGeometry.displayBounds(for: screen)
+
+        if AXIsProcessTrusted(), hasAXFullScreenWindow(onDisplay: displayBounds) {
+            return true
+        }
+
+        return hasCGFullScreenWindow(onDisplay: displayBounds)
     }
 
     private func startPollTimer() {
@@ -157,14 +221,7 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    private func currentDisplayBounds() -> CGRect {
-        CGDisplayBounds(CGMainDisplayID())
-    }
-
-    private func fetchCGWindowSnapshots(
-        displayBounds: CGRect,
-        applicationsByPID: [pid_t: NSRunningApplication]
-    ) -> [CGWindowSnapshot] {
+    private func fetchCGWindowSnapshots(applicationsByPID: [pid_t: NSRunningApplication]) -> [CGWindowSnapshot] {
         guard
             let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else {
@@ -190,7 +247,7 @@ final class WindowManager: ObservableObject {
                 alpha > 0,
                 area >= 100,
                 application.activationPolicy == .regular,
-                displayBounds.contains(bounds.origin)
+                ScreenGeometry.screen(for: bounds) != nil
             else {
                 return nil
             }
@@ -208,16 +265,15 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    private func isEligibleAXWindow(_ element: AXUIElement, displayBounds: CGRect) -> Bool {
+    private func isEligibleAXWindow(_ element: AXUIElement, frame: CGRect) -> Bool {
         let role = axStringValue(for: element, attribute: kAXRoleAttribute as CFString)
         let subrole = axStringValue(for: element, attribute: kAXSubroleAttribute as CFString)
 
         guard
             role == (kAXWindowRole as String),
             subrole == (kAXStandardWindowSubrole as String) || subrole == (kAXDialogSubrole as String),
-            let frame = axFrame(for: element),
             frame.width * frame.height >= 100,
-            displayBounds.contains(frame.origin)
+            ScreenGeometry.screen(for: frame) != nil
         else {
             return false
         }
@@ -349,6 +405,9 @@ final class WindowManager: ObservableObject {
                 isHidden: provisionalWindow.isHidden,
                 isProvisional: false
             )
+            if let bounds = provisionalBounds[key] {
+                authoritativeBounds[windowID] = bounds
+            }
         }
 
         removeProvisionalWindow(forKey: key)
@@ -357,6 +416,7 @@ final class WindowManager: ObservableObject {
 
     private func removeProvisionalWindow(forKey key: String) {
         provisional.removeValue(forKey: key)
+        provisionalBounds.removeValue(forKey: key)
         provisionalElements.removeValue(forKey: key)
         promotionWorkItems.removeValue(forKey: key)?.cancel()
     }
@@ -433,12 +493,73 @@ final class WindowManager: ObservableObject {
         "\(pid)-\(Unmanaged.passUnretained(element).toOpaque())"
     }
 
+    private func bounds(for window: WindowInfo) -> CGRect? {
+        if let cgWindowID = window.cgWindowID {
+            return authoritativeBounds[cgWindowID]
+        }
+
+        if let provisionalID = window.provisionalID {
+            return provisionalBounds[provisionalID]
+        }
+
+        return nil
+    }
+
     private func isBlacklisted(bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else {
             return false
         }
 
         return blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
+    }
+
+    private func hasAXFullScreenWindow(onDisplay displayBounds: CGRect) -> Bool {
+        let regularApplications = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular &&
+            $0.bundleIdentifier != Bundle.main.bundleIdentifier
+        }
+
+        for application in regularApplications {
+            let axWindows = accessibilityService.enumerateWindows(for: application)
+
+            for axWindow in axWindows {
+                guard
+                    axBoolValue(for: axWindow, attribute: "AXFullScreen" as CFString) == true,
+                    let frame = axFrame(for: axWindow),
+                    ScreenGeometry.isWindow(bounds: frame, onDisplay: displayBounds)
+                else {
+                    continue
+                }
+
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func hasCGFullScreenWindow(onDisplay displayBounds: CGRect) -> Bool {
+        guard
+            let windowList = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements],
+                kCGNullWindowID
+            ) as? [[String: Any]]
+        else {
+            return false
+        }
+
+        return windowList.contains { entry in
+            guard
+                let layer = entry[kCGWindowLayer as String] as? Int,
+                layer == 0,
+                let boundsDictionary = entry[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
+            else {
+                return false
+            }
+
+            return ScreenGeometry.matchesFullScreenWindow(bounds: bounds, onDisplay: displayBounds)
+        }
     }
 
     static func visibleWindowPIDs(from windows: [WindowInfo]) -> Set<pid_t> {

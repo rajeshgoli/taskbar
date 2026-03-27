@@ -11,6 +11,7 @@ final class TaskbarContentView: NSView {
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let blacklistManager: BlacklistManager
+    private let displayID: CGDirectDisplayID
     private let launcherZoneView: LauncherZoneView
     private let runningAppTrayView: RunningAppTrayView
     private let axGetWindow: AXUIElementGetWindowFunc?
@@ -33,21 +34,25 @@ final class TaskbarContentView: NSView {
         permissionsManager: PermissionsManager,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
-        pinnedAppManager: PinnedAppManager
+        pinnedAppManager: PinnedAppManager,
+        displayID: CGDirectDisplayID
     ) {
         self.windowManager = windowManager
         self.badgeMonitor = badgeMonitor
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
+        self.displayID = displayID
         launcherZoneView = LauncherZoneView(
             settings: settings,
             pinnedAppManager: pinnedAppManager,
-            windowManager: windowManager
+            windowManager: windowManager,
+            displayID: displayID
         )
         runningAppTrayView = RunningAppTrayView(
             windowManager: windowManager,
-            pinnedAppManager: pinnedAppManager
+            pinnedAppManager: pinnedAppManager,
+            displayID: displayID
         )
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
             axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
@@ -82,6 +87,7 @@ final class TaskbarContentView: NSView {
 
     func handleAccessibilityPermissionChange() {
         launcherZoneView.refresh()
+        runningAppTrayView.refresh()
         rebuildTaskZone()
     }
 
@@ -243,9 +249,10 @@ final class TaskbarContentView: NSView {
         }
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let scopedWindows = scopedVisibleWindows()
 
         if settings.groupByApp {
-            for item in groupedTaskItems(from: windowManager.visibleWindows) {
+            for item in groupedTaskItems(from: scopedWindows) {
                 switch item {
                 case .window(let window):
                     addTaskButton(for: window, frontmostPID: frontmostPID)
@@ -264,9 +271,17 @@ final class TaskbarContentView: NSView {
 
         expandedGroupID = nil
 
-        for window in windowManager.visibleWindows {
+        for window in scopedWindows {
             addTaskButton(for: window, frontmostPID: frontmostPID)
         }
+    }
+
+    private func scopedVisibleWindows() -> [WindowInfo] {
+        guard let screen = ScreenGeometry.screen(for: displayID) else {
+            return []
+        }
+
+        return windowManager.visibleWindows(on: screen)
     }
 
     private func updateTaskbarLayout() {
