@@ -10,8 +10,8 @@ final class TaskbarContentView: NSView {
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let blacklistManager: BlacklistManager
-    private let pinnedAppManager: PinnedAppManager
     private let launcherZoneView: LauncherZoneView
+    private let runningAppTrayView: RunningAppTrayView
     private let axGetWindow: AXUIElementGetWindowFunc?
 
     private let rootStackView = NSStackView()
@@ -19,7 +19,6 @@ final class TaskbarContentView: NSView {
     private let zonesStackView = NSStackView()
     private let taskZoneScrollView = NSScrollView()
     private let taskZoneStackView = NSStackView()
-    private let trayZoneStackView = NSStackView()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -34,15 +33,18 @@ final class TaskbarContentView: NSView {
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
-        self.pinnedAppManager = pinnedAppManager
         launcherZoneView = LauncherZoneView(
             pinnedAppManager: pinnedAppManager,
             windowManager: windowManager
         )
+        runningAppTrayView = RunningAppTrayView(
+            windowManager: windowManager,
+            pinnedAppManager: pinnedAppManager
+        )
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
-            self.axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
+            axGetWindow = unsafeBitCast(symbol, to: AXUIElementGetWindowFunc.self)
         } else {
-            self.axGetWindow = nil
+            axGetWindow = nil
         }
         super.init(frame: .zero)
         wantsLayer = true
@@ -51,7 +53,7 @@ final class TaskbarContentView: NSView {
         configureLayout()
         bindState()
         updateTaskbarLayout()
-        rebuildViews()
+        rebuildTaskZone()
     }
 
     @available(*, unavailable)
@@ -61,7 +63,7 @@ final class TaskbarContentView: NSView {
 
     func handleAccessibilityPermissionChange() {
         launcherZoneView.refresh()
-        rebuildViews()
+        rebuildTaskZone()
     }
 
     private func configureLayout() {
@@ -91,6 +93,7 @@ final class TaskbarContentView: NSView {
         bannerButton.target = self
         bannerButton.action = #selector(openAccessibilitySettings)
         rootStackView.addArrangedSubview(bannerButton)
+
         NSLayoutConstraint.activate([
             bannerButton.leadingAnchor.constraint(equalTo: rootStackView.leadingAnchor),
             bannerButton.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor),
@@ -104,6 +107,7 @@ final class TaskbarContentView: NSView {
         zonesStackView.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
         zonesStackView.translatesAutoresizingMaskIntoConstraints = false
         rootStackView.addArrangedSubview(zonesStackView)
+
         NSLayoutConstraint.activate([
             zonesStackView.leadingAnchor.constraint(equalTo: rootStackView.leadingAnchor),
             zonesStackView.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor)
@@ -139,31 +143,26 @@ final class TaskbarContentView: NSView {
         let taskZoneDocumentView = NSView()
         taskZoneDocumentView.translatesAutoresizingMaskIntoConstraints = false
         taskZoneDocumentView.addSubview(taskZoneStackView)
+
         NSLayoutConstraint.activate([
             taskZoneStackView.leadingAnchor.constraint(equalTo: taskZoneDocumentView.leadingAnchor),
             taskZoneStackView.trailingAnchor.constraint(equalTo: taskZoneDocumentView.trailingAnchor),
             taskZoneStackView.topAnchor.constraint(equalTo: taskZoneDocumentView.topAnchor),
             taskZoneStackView.bottomAnchor.constraint(equalTo: taskZoneDocumentView.bottomAnchor)
         ])
-        taskZoneScrollView.documentView = taskZoneDocumentView
 
-        let trayContainer = makeZoneContainer(for: trayZoneStackView, width: 140)
-        trayZoneStackView.orientation = .horizontal
-        trayZoneStackView.alignment = .centerY
-        trayZoneStackView.spacing = 6
-        trayZoneStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        taskZoneScrollView.documentView = taskZoneDocumentView
 
         zonesStackView.addArrangedSubview(launcherZoneView)
         zonesStackView.addArrangedSubview(taskZoneContainer)
-        zonesStackView.addArrangedSubview(makeDivider())
-        zonesStackView.addArrangedSubview(trayContainer)
+        zonesStackView.addArrangedSubview(runningAppTrayView)
     }
 
     private func bindState() {
-        windowManager.$windows
+        windowManager.$visibleWindows
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.rebuildViews()
+                self?.rebuildTaskZone()
             }
             .store(in: &cancellables)
 
@@ -171,13 +170,6 @@ final class TaskbarContentView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateTaskbarLayout()
-            }
-            .store(in: &cancellables)
-
-        pinnedAppManager.$pinnedApps
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.rebuildViews()
             }
             .store(in: &cancellables)
 
@@ -194,13 +186,13 @@ final class TaskbarContentView: NSView {
             workspaceNotifications.publisher(for: name)
                 .receive(on: RunLoop.main)
                 .sink { [weak self] _ in
-                    self?.rebuildViews()
+                    self?.rebuildTaskZone()
                 }
                 .store(in: &cancellables)
         }
     }
 
-    private func rebuildViews() {
+    private func rebuildTaskZone() {
         bannerButton.isHidden = permissionsManager.isAccessibilityGranted
 
         taskZoneStackView.arrangedSubviews.forEach { view in
@@ -208,72 +200,21 @@ final class TaskbarContentView: NSView {
             view.removeFromSuperview()
         }
 
-        trayZoneStackView.arrangedSubviews.forEach { view in
-            trayZoneStackView.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-
-        let runningApplications = regularRunningApplications()
-        let pinnedBundleIdentifiers = Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier))
-        let visibleApplicationPIDs = onScreenApplicationPIDs()
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let appsWithoutVisibleWindows = Set(
-            Dictionary(grouping: windowManager.windows, by: \.pid)
-                .compactMap { pid, windows in
-                    windows.allSatisfy { $0.isMinimized || $0.isHidden } ? pid : nil
-                }
-        )
 
-        if permissionsManager.isAccessibilityGranted {
-            for window in windowManager.windows where !appsWithoutVisibleWindows.contains(window.pid) {
-                let buttonView = TaskButtonView(
-                    windowInfo: window,
-                    isActive: window.pid == frontmostPID,
-                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
-                    settings: settings,
-                    blacklistManager: blacklistManager
-                ) { [weak self] windowInfo in
-                    self?.activate(windowInfo: windowInfo)
-                }
-                taskZoneStackView.addArrangedSubview(buttonView)
-                buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        for window in windowManager.visibleWindows {
+            let buttonView = TaskButtonView(
+                windowInfo: window,
+                isActive: window.pid == frontmostPID,
+                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                settings: settings,
+                blacklistManager: blacklistManager
+            ) { [weak self] windowInfo in
+                self?.activate(windowInfo: windowInfo)
             }
-        } else {
-            let taskItems: [TaskbarItem] = runningApplications.compactMap { application in
-                guard visibleApplicationPIDs.contains(application.processIdentifier) else {
-                    return nil
-                }
-
-                return TaskbarItem(
-                    application: application,
-                    title: application.localizedName ?? "Unknown"
-                )
-            }
-
-            taskItems.forEach { item in
-                let button = TaskbarAppButton(
-                    application: item.application,
-                    title: item.title,
-                    isActive: item.application.processIdentifier == frontmostPID
-                )
-                button.target = self
-                button.action = #selector(activateApplication(_:))
-                button.menu = quitMenu(for: item.application)
-                taskZoneStackView.addArrangedSubview(button)
-            }
+            taskZoneStackView.addArrangedSubview(buttonView)
+            buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
         }
-
-        runningApplications
-            .filter { application in
-                !visibleApplicationPIDs.contains(application.processIdentifier) &&
-                    !pinnedBundleIdentifiers.contains(application.bundleIdentifier ?? "")
-            }
-            .forEach { application in
-                let button = TrayAppButton(application: application)
-                button.target = self
-                button.action = #selector(activateApplication(_:))
-                trayZoneStackView.addArrangedSubview(button)
-            }
     }
 
     private func updateTaskbarLayout() {
@@ -400,178 +341,8 @@ final class TaskbarContentView: NSView {
         return isMinimized
     }
 
-    private func regularRunningApplications() -> [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular &&
-            $0.bundleIdentifier != Bundle.main.bundleIdentifier
-        }
-    }
-
-    private func onScreenApplicationPIDs() -> Set<pid_t> {
-        guard
-            let screen = window?.screen ?? NSScreen.main ?? NSScreen.screens.first,
-            let windowList = CGWindowListCopyWindowInfo(
-                [.optionOnScreenOnly, .excludeDesktopElements],
-                kCGNullWindowID
-            ) as? [[String: Any]]
-        else {
-            return []
-        }
-
-        return Set(windowList.compactMap { entry in
-            guard
-                let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
-                let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue,
-                layer == 0,
-                let boundsDictionary = entry[kCGWindowBounds as String] as? [String: Any],
-                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
-                bounds.width * bounds.height >= 100,
-                screen.frame.intersects(bounds)
-            else {
-                return nil
-            }
-
-            return ownerPID
-        })
-    }
-
-    private func makeZoneContainer(for contentView: NSView, width: CGFloat) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(contentView)
-
-        NSLayoutConstraint.activate([
-            container.widthAnchor.constraint(equalToConstant: width),
-            contentView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            contentView.topAnchor.constraint(equalTo: container.topAnchor),
-            contentView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
-        ])
-
-        return container
-    }
-
-    private func makeDivider() -> NSView {
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 28)
-        ])
-        return divider
-    }
-
-    private func quitMenu(for application: NSRunningApplication) -> NSMenu {
-        let menu = NSMenu()
-        let menuItem = NSMenuItem(
-            title: "Quit",
-            action: #selector(quitApplication(_:)),
-            keyEquivalent: ""
-        )
-        menuItem.representedObject = application
-        menuItem.target = self
-        menu.addItem(menuItem)
-        return menu
-    }
-
     @objc
     private func openAccessibilitySettings() {
         permissionsManager.openAccessibilitySettings()
-    }
-
-    @objc
-    private func activateApplication(_ sender: NSButton) {
-        (sender as? ApplicationRepresentable)?.application?
-            .activate(options: .activateAllWindows)
-    }
-
-    @objc
-    private func quitApplication(_ sender: NSMenuItem) {
-        (sender.representedObject as? NSRunningApplication)?.terminate()
-    }
-}
-
-private struct TaskbarItem {
-    let application: NSRunningApplication
-    let title: String
-}
-
-private protocol ApplicationRepresentable where Self: NSView {
-    var application: NSRunningApplication? { get }
-}
-
-private final class TaskbarAppButton: NSButton, ApplicationRepresentable {
-    let application: NSRunningApplication?
-
-    init(application: NSRunningApplication, title: String, isActive: Bool) {
-        self.application = application
-        super.init(frame: .zero)
-
-        self.title = title
-        image = application.icon
-        toolTip = title
-        imagePosition = .imageLeading
-        imageScaling = .scaleProportionallyUpOrDown
-        font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        isBordered = false
-        bezelStyle = .regularSquare
-        wantsLayer = true
-        layer?.cornerRadius = 7
-        layer?.backgroundColor = (
-            isActive
-                ? NSColor.controlAccentColor.withAlphaComponent(0.28)
-                : NSColor.windowBackgroundColor.withAlphaComponent(0.24)
-        ).cgColor
-        contentTintColor = NSColor.labelColor
-        setButtonType(.momentaryChange)
-        translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
-            heightAnchor.constraint(equalToConstant: 30)
-        ])
-
-        if let buttonCell = cell as? NSButtonCell {
-            buttonCell.lineBreakMode = .byTruncatingTail
-            buttonCell.imageScaling = .scaleProportionallyDown
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-private final class TrayAppButton: NSButton, ApplicationRepresentable {
-    let application: NSRunningApplication?
-
-    init(application: NSRunningApplication) {
-        self.application = application
-        super.init(frame: .zero)
-
-        image = application.icon
-        title = ""
-        toolTip = application.localizedName
-        imageScaling = .scaleProportionallyUpOrDown
-        isBordered = false
-        wantsLayer = true
-        layer?.cornerRadius = 6
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.2).cgColor
-        translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 28),
-            heightAnchor.constraint(equalToConstant: 28)
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }

@@ -4,14 +4,18 @@ import Combine
 
 final class WindowManager: ObservableObject {
     @Published var windows: [WindowInfo] = []
+    @Published private(set) var visibleWindows: [WindowInfo] = []
+    @Published private(set) var trayApps: [NSRunningApplication] = []
 
     private let accessibilityService: AccessibilityService
     private let blacklistManager: BlacklistManager
+    private let pinnedAppManager: PinnedAppManager
     private let refreshDebouncer = Debouncer()
     private var workspaceMonitor: WorkspaceMonitor?
     private var axObserverManager: AXObserverManager?
     private var pollTimer: Timer?
     private var blacklistObserver: NSObjectProtocol?
+    private var cancellables = Set<AnyCancellable>()
 
     private var authoritative: [CGWindowID: WindowInfo] = [:]
     private var provisional: [String: WindowInfo] = [:]
@@ -20,10 +24,12 @@ final class WindowManager: ObservableObject {
 
     init(
         accessibilityService: AccessibilityService = AccessibilityService(),
-        blacklistManager: BlacklistManager = BlacklistManager()
+        blacklistManager: BlacklistManager = BlacklistManager(),
+        pinnedAppManager: PinnedAppManager = PinnedAppManager()
     ) {
         self.accessibilityService = accessibilityService
         self.blacklistManager = blacklistManager
+        self.pinnedAppManager = pinnedAppManager
         workspaceMonitor = WorkspaceMonitor(windowManager: self)
         axObserverManager = AXObserverManager(windowManager: self)
         blacklistObserver = NotificationCenter.default.addObserver(
@@ -33,6 +39,12 @@ final class WindowManager: ObservableObject {
         ) { [weak self] _ in
             self?.refresh()
         }
+        pinnedAppManager.$pinnedApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.publishDerivedState()
+            }
+            .store(in: &cancellables)
         startPollTimer()
         refresh()
     }
@@ -384,6 +396,37 @@ final class WindowManager: ObservableObject {
 
             return $0.id < $1.id
         }
+
+        publishDerivedState()
+    }
+
+    private func publishDerivedState() {
+        let visibleWindowPIDs = Self.visibleWindowPIDs(from: windows)
+        visibleWindows = windows.filter { visibleWindowPIDs.contains($0.pid) }
+
+        let runningApplications = regularRunningApplications()
+        let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let trayCandidates = Self.trayApplicationCandidates(
+            from: runningApplications.map {
+                RunningApplicationCandidate(
+                    pid: $0.processIdentifier,
+                    bundleIdentifier: $0.bundleIdentifier,
+                    name: $0.localizedName ?? $0.bundleIdentifier ?? "Unknown"
+                )
+            },
+            visibleWindowPIDs: visibleWindowPIDs,
+            pinnedBundleIdentifiers: Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier)),
+            blacklistedBundleIdentifiers: blacklistManager.blacklistedBundleIDs,
+            currentBundleIdentifier: Bundle.main.bundleIdentifier
+        )
+
+        trayApps = trayCandidates.compactMap { applicationsByPID[$0.pid] }
+    }
+
+    private func regularRunningApplications() -> [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular
+        }
     }
 
     private func provisionalKey(for pid: pid_t, element: AXUIElement) -> String {
@@ -397,6 +440,55 @@ final class WindowManager: ObservableObject {
 
         return blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
     }
+
+    static func visibleWindowPIDs(from windows: [WindowInfo]) -> Set<pid_t> {
+        Set(
+            Dictionary(grouping: windows, by: \.pid)
+                .compactMap { pid, appWindows in
+                    appWindows.contains(where: { !$0.isMinimized && !$0.isHidden }) ? pid : nil
+                }
+        )
+    }
+
+    static func trayApplicationCandidates(
+        from candidates: [RunningApplicationCandidate],
+        visibleWindowPIDs: Set<pid_t>,
+        pinnedBundleIdentifiers: Set<String>,
+        blacklistedBundleIdentifiers: Set<String>,
+        currentBundleIdentifier: String?
+    ) -> [RunningApplicationCandidate] {
+        candidates
+            .filter { candidate in
+                guard candidate.bundleIdentifier != currentBundleIdentifier else {
+                    return false
+                }
+
+                guard !visibleWindowPIDs.contains(candidate.pid) else {
+                    return false
+                }
+
+                guard let bundleIdentifier = candidate.bundleIdentifier else {
+                    return true
+                }
+
+                return !pinnedBundleIdentifiers.contains(bundleIdentifier) &&
+                    !blacklistedBundleIdentifiers.contains(bundleIdentifier)
+            }
+            .sorted { lhs, rhs in
+                let nameComparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameComparison != .orderedSame {
+                    return nameComparison == .orderedAscending
+                }
+
+                return lhs.pid < rhs.pid
+            }
+    }
+}
+
+struct RunningApplicationCandidate: Equatable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+    let name: String
 }
 
 private struct CGWindowSnapshot {
