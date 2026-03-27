@@ -307,7 +307,9 @@ final class TaskbarContentView: NSView {
             return []
         }
 
-        return windowManager.visibleWindows(on: screen)
+        // Include all windows (including minimized/hidden) so they stay in the taskbar
+        // with dimmed appearance — Windows-style behavior
+        return windowManager.windows(on: screen)
     }
 
     private func updateTaskbarLayout() {

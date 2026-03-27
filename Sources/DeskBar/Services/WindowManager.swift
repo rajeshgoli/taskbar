@@ -170,6 +170,16 @@ final class WindowManager: ObservableObject {
 
     func windows(onDisplay displayBounds: CGRect) -> [WindowInfo] {
         windows.filter { window in
+            // Minimized/hidden windows don't appear in CGWindowList (off-screen).
+            // Keep them associated with the main display so they stay in the taskbar.
+            if window.isMinimized || window.isHidden {
+                guard let bounds = bounds(for: window) else {
+                    // No known bounds — show on main display
+                    return displayBounds == ScreenGeometry.mainDisplayBounds()
+                }
+                return ScreenGeometry.isWindow(bounds: bounds, onDisplay: displayBounds)
+            }
+
             guard let bounds = bounds(for: window) else {
                 return false
             }
