@@ -23,6 +23,7 @@ final class TaskbarContentView: NSView {
     private let taskZoneStackView = NSStackView()
 
     private let pinnedAppManager: PinnedAppManager
+    private let thumbnailService: ThumbnailService?
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -39,6 +40,7 @@ final class TaskbarContentView: NSView {
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         pinnedAppManager: PinnedAppManager,
+        thumbnailService: ThumbnailService? = nil,
         displayID: CGDirectDisplayID
     ) {
         self.windowManager = windowManager
@@ -47,6 +49,7 @@ final class TaskbarContentView: NSView {
         self.settings = settings
         self.blacklistManager = blacklistManager
         self.pinnedAppManager = pinnedAppManager
+        self.thumbnailService = thumbnailService
         self.displayID = displayID
         launcherZoneView = LauncherZoneView(
             settings: settings,
@@ -353,6 +356,11 @@ final class TaskbarContentView: NSView {
             }
         ) { [weak self] windowInfo in
             self?.activate(windowInfo: windowInfo)
+        }
+        if let thumbnailService {
+            buttonView.thumbnailProvider = { [weak thumbnailService] cgWindowID in
+                await thumbnailService?.captureThumbnail(windowID: cgWindowID)
+            }
         }
         buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
         taskItemViews[itemID] = buttonView
@@ -1409,9 +1417,15 @@ private final class TaskZoneGroupContainerView: NSView {
 private func reconcileArrangedSubviews(_ desiredViews: [NSView], in stackView: NSStackView) {
     let desiredIdentifiers = Set(desiredViews.map(ObjectIdentifier.init))
 
+    // Fade out removed views
     for view in stackView.arrangedSubviews where !desiredIdentifiers.contains(ObjectIdentifier(view)) {
-        stackView.removeArrangedSubview(view)
-        view.removeFromSuperview()
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.15
+            view.animator().alphaValue = 0
+        }, completionHandler: {
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        })
     }
 
     for (index, view) in desiredViews.enumerated() {
@@ -1425,6 +1439,17 @@ private func reconcileArrangedSubviews(_ desiredViews: [NSView], in stackView: N
             stackView.removeArrangedSubview(view)
         }
 
+        // Fade in new views
+        let isNew = !stackView.arrangedSubviews.contains(where: { $0 === view })
+        if isNew {
+            view.alphaValue = 0
+        }
         stackView.insertArrangedSubview(view, at: index)
+        if isNew {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                view.animator().alphaValue = 1
+            }
+        }
     }
 }

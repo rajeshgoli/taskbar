@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pinnedAppManager: PinnedAppManager?
     private var loginItemManager: LoginItemManager?
     private var badgeMonitor: BadgeMonitor?
+    private var thumbnailService: ThumbnailService?
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
@@ -46,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let badgeMonitor = BadgeMonitor()
         self.badgeMonitor = badgeMonitor
+
+        let thumbnailService = ThumbnailService()
+        self.thumbnailService = thumbnailService
 
         configureObservers(
             windowManager: wm,
@@ -257,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings: settings,
                 blacklistManager: blacklistManager,
                 pinnedAppManager: pinnedAppManager,
+                thumbnailService: thumbnailService,
                 displayID: displayID
             )
             let panel = TaskbarPanel(
