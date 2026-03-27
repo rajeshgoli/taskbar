@@ -8,7 +8,7 @@ enum DockMode: String, CaseIterable {
 }
 
 class TaskbarSettings: ObservableObject {
-    private let defaults = UserDefaults(suiteName: "com.deskbar.app")!
+    private let defaults: UserDefaults
 
     @Published var showLaunchpadButton: Bool {
         didSet { defaults.set(showLaunchpadButton, forKey: "showLaunchpadButton") }
@@ -66,7 +66,8 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(showOnAllMonitors, forKey: "showOnAllMonitors") }
     }
 
-    init() {
+    init(defaults: UserDefaults = UserDefaults(suiteName: "com.deskbar.app")!) {
+        self.defaults = defaults
         showLaunchpadButton = defaults.object(forKey: "showLaunchpadButton") as? Bool ?? true
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? 40
         titleFontSize = defaults.object(forKey: "titleFontSize") as? CGFloat ?? 12

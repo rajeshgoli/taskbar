@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: TaskbarSettings?
     private var blacklistManager: BlacklistManager?
     private var pinnedAppManager: PinnedAppManager?
+    private var loginItemManager: LoginItemManager?
     private var settingsWindowController: SettingsWindowController?
     private var contentView: TaskbarContentView?
     private var statusItem: NSStatusItem?
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let settings = TaskbarSettings()
         self.settings = settings
+        loginItemManager = LoginItemManager(settings: settings)
 
         let blacklistManager = BlacklistManager()
         self.blacklistManager = blacklistManager
