@@ -22,6 +22,7 @@ final class TaskbarContentView: NSView {
     private let taskZoneScrollView = NSScrollView()
     private let taskZoneStackView = NSStackView()
 
+    private let pinnedAppManager: PinnedAppManager
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -45,6 +46,7 @@ final class TaskbarContentView: NSView {
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
+        self.pinnedAppManager = pinnedAppManager
         self.displayID = displayID
         launcherZoneView = LauncherZoneView(
             settings: settings,
@@ -69,6 +71,7 @@ final class TaskbarContentView: NSView {
         configureLayout()
         bindState()
         installCollapseMonitors()
+        observePinRequests()
         updateTaskbarLayout()
         rebuildTaskZone()
     }
@@ -681,6 +684,17 @@ final class TaskbarContentView: NSView {
 
         expandedGroupID = nil
         rebuildTaskZone()
+    }
+
+    private func observePinRequests() {
+        NotificationCenter.default.publisher(for: Notification.Name("DeskBar.pinToLauncher"))
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let bundleID = notification.userInfo?["bundleIdentifier"] as? String,
+                      let appName = notification.userInfo?["appName"] as? String else { return }
+                self?.pinnedAppManager.pin(bundleIdentifier: bundleID, name: appName)
+            }
+            .store(in: &cancellables)
     }
 
     private func installCollapseMonitors() {

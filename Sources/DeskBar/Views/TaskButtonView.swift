@@ -500,6 +500,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
         }
 
         menu.addItem(.separator())
+        menu.addItem(makePinToLauncherMenuItem())
         menu.addItem(makeBlacklistMenuItem())
 
         return menu
@@ -508,6 +509,12 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private func makeMenuItem(title: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        return item
+    }
+
+    private func makePinToLauncherMenuItem() -> NSMenuItem {
+        let item = makeMenuItem(title: "Pin to Launcher", action: #selector(pinToLauncher(_:)))
+        item.isEnabled = windowInfo.bundleIdentifier != nil
         return item
     }
 
@@ -586,6 +593,16 @@ final class TaskButtonView: NSView, NSDraggingSource {
     @objc
     private func quitApplication(_ sender: Any?) {
         owningApplication?.terminate()
+    }
+
+    @objc
+    private func pinToLauncher(_ sender: Any?) {
+        guard let bundleIdentifier = windowInfo.bundleIdentifier else { return }
+        NotificationCenter.default.post(
+            name: Notification.Name("DeskBar.pinToLauncher"),
+            object: nil,
+            userInfo: ["bundleIdentifier": bundleIdentifier, "appName": windowInfo.appName]
+        )
     }
 
     @objc
