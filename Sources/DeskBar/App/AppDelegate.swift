@@ -26,7 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pinnedAppManager = PinnedAppManager()
         self.pinnedAppManager = pinnedAppManager
 
-        let wm = WindowManager(blacklistManager: blacklistManager)
+        let wm = WindowManager(
+            blacklistManager: blacklistManager,
+            pinnedAppManager: pinnedAppManager
+        )
         windowManager = wm
 
         let contentView = TaskbarContentView(
