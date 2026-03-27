@@ -81,6 +81,6 @@ class TaskbarSettings: ObservableObject {
         dockMode = DockMode(rawValue: defaults.string(forKey: "dockMode") ?? "") ?? .independent
         showOverFullScreenApps = defaults.object(forKey: "showOverFullScreenApps") as? Bool ?? false
         startAtLogin = defaults.object(forKey: "startAtLogin") as? Bool ?? false
-        showOnAllMonitors = defaults.object(forKey: "showOnAllMonitors") as? Bool ?? false
+        showOnAllMonitors = defaults.object(forKey: "showOnAllMonitors") as? Bool ?? true
     }
 }
