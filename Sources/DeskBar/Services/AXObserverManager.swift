@@ -13,7 +13,8 @@ final class AXObserverManager {
         kAXWindowMiniaturizedNotification as CFString,
         kAXWindowDeminiaturizedNotification as CFString,
         kAXFocusedWindowChangedNotification as CFString,
-        kAXTitleChangedNotification as CFString
+        kAXTitleChangedNotification as CFString,
+        kAXWindowResizedNotification as CFString
     ]
 
     init(windowManager: WindowManager) {
@@ -122,13 +123,22 @@ final class AXObserverManager {
             self?.windowManager?.refresh()
         }
     }
+
+    fileprivate func handleWindowResized(_ element: AXUIElement) {
+        windowManager?.adjustWindowForTaskbar(element)
+    }
 }
 
-private let observerCallback: AXObserverCallback = { _, _, _, refcon in
+private let observerCallback: AXObserverCallback = { _, element, notification, refcon in
     guard let refcon else {
         return
     }
 
     let manager = Unmanaged<AXObserverManager>.fromOpaque(refcon).takeUnretainedValue()
+
+    if notification == kAXWindowResizedNotification as CFString {
+        manager.handleWindowResized(element)
+    }
+
     manager.handleAXNotification()
 }

@@ -17,6 +17,9 @@ final class WindowManager: ObservableObject {
     private var blacklistObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
 
+    var taskbarHeight: CGFloat = 40
+    var activeDisplayIDs: Set<CGDirectDisplayID> = []
+
     private var authoritative: [CGWindowID: WindowInfo] = [:]
     private var authoritativeBounds: [CGWindowID: CGRect] = [:]
     private var provisional: [String: WindowInfo] = [:]
@@ -101,6 +104,7 @@ final class WindowManager: ObservableObject {
         )
 
         var visibleProvisionalKeys = Set<String>()
+        var allAXWindows: [AXUIElement] = []
 
         for application in regularApplications {
             let axWindows = accessibilityService.enumerateWindows(for: application)
@@ -112,6 +116,8 @@ final class WindowManager: ObservableObject {
                 else {
                     continue
                 }
+
+                allAXWindows.append(axWindow)
 
                 let provisionalKey = provisionalKey(for: application.processIdentifier, element: axWindow)
                 visibleProvisionalKeys.insert(provisionalKey)
@@ -162,6 +168,10 @@ final class WindowManager: ObservableObject {
         authoritative = nextAuthoritative
         authoritativeBounds = nextAuthoritativeBounds
         publishWindows(currentWindowOrder: currentWindowOrder)
+
+        for axWindow in allAXWindows {
+            adjustWindowForTaskbar(axWindow)
+        }
     }
 
     func windows(on screen: NSScreen) -> [WindowInfo] {
@@ -221,11 +231,50 @@ final class WindowManager: ObservableObject {
         return trayCandidates.compactMap { applicationsByPID[$0.pid] }
     }
 
+    func adjustWindowForTaskbar(_ element: AXUIElement) {
+        guard AXIsProcessTrusted() else { return }
+
+        // Don't touch true full-screen windows
+        if axBoolValue(for: element, attribute: "AXFullScreen" as CFString) == true {
+            return
+        }
+
+        guard let frame = axFrame(for: element) else { return }
+
+        // Find which display this window is on — only adjust on displays with a DeskBar panel
+        guard let screen = ScreenGeometry.screen(for: frame),
+              let displayID = ScreenGeometry.displayID(for: screen),
+              activeDisplayIDs.contains(displayID)
+        else { return }
+        let displayBounds = ScreenGeometry.displayBounds(for: screen)
+
+        // Only adjust windows that look "zoomed" — nearly full screen width
+        guard abs(frame.width - displayBounds.width) <= 20 else { return }
+
+        // Check if the window's bottom edge extends into the DeskBar area
+        let taskbarTop = displayBounds.maxY - taskbarHeight
+        let windowBottom = frame.origin.y + frame.size.height
+
+        guard windowBottom > taskbarTop + 2 else { return }
+
+        // Shrink the window height so it sits just above DeskBar
+        let newHeight = taskbarTop - frame.origin.y
+        guard newHeight > 100 else { return }
+
+        var size = CGSize(width: frame.width, height: newHeight)
+        guard let sizeValue = AXValueCreate(.cgSize, &size) else { return }
+        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+    }
+
     func hasFullScreenWindow(on screen: NSScreen) -> Bool {
         let displayBounds = ScreenGeometry.displayBounds(for: screen)
 
-        if AXIsProcessTrusted(), hasAXFullScreenWindow(onDisplay: displayBounds) {
-            return true
+        // When accessibility is available, use AXFullScreen which reliably
+        // distinguishes true full-screen from zoomed/maximized windows.
+        // The CG geometry fallback cannot tell them apart — a zoomed window
+        // with Dock hidden has the same bounds as a full-screen window.
+        if AXIsProcessTrusted() {
+            return hasAXFullScreenWindow(onDisplay: displayBounds)
         }
 
         return hasCGFullScreenWindow(onDisplay: displayBounds)
