@@ -57,6 +57,8 @@ final class LaunchpadButtonView: NSView {
         isHovered = false
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {
         NSWorkspace.shared.open(URL(fileURLWithPath: Self.launchpadPath))
     }

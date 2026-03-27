@@ -57,6 +57,8 @@ final class LauncherButtonView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: 36, height: 42)
     }
