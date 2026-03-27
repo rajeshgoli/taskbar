@@ -736,9 +736,14 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        // Raise the specific window via AX, then activate without .activateAllWindows
+        // Raise the specific window via AX, then activate the app
         if let windowElement = matchingWindowElement(for: windowInfo, application: application) {
+            // Set as the app's main/focused window first
+            let appElement = AXUIElementCreateApplication(application.processIdentifier)
+            _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, windowElement)
+            // Raise to front of app's window stack
             _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
+            // Activate the app to bring it forward (the raised window is now on top)
             application.activate()
         } else {
             // Fallback: no AX element found, activate all windows
