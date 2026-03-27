@@ -29,6 +29,7 @@ final class TaskbarContentView: NSView {
     private weak var expandedGroupView: NSView?
     private var groupedTaskOrderState = TaskZoneOrderingState()
     private var ungroupedTaskOrderState = TaskZoneOrderingState()
+    private var taskItemViews: [String: NSView] = [:]
 
     init(
         windowManager: WindowManager,
@@ -253,52 +254,49 @@ final class TaskbarContentView: NSView {
         bannerButton.isHidden = permissionsManager.isAccessibilityGranted
         expandedGroupView = nil
 
-        taskZoneStackView.arrangedSubviews.forEach { view in
-            taskZoneStackView.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let scopedWindows = scopedVisibleWindows()
-        let frontmostWindowID = currentFrontmostWindowID(in: scopedWindows)
 
         if settings.groupByApp {
-            let items = orderedGroupedTaskItems(from: scopedWindows, frontmostWindowID: frontmostWindowID)
+            let items = orderedGroupedTaskItems(from: scopedWindows)
+            var desiredViews: [NSView] = []
+            var retainedItemIDs = Set<String>()
 
             for item in items {
-                switch item {
-                case .window(let window):
-                    addTaskButton(
-                        for: window,
-                        frontmostPID: frontmostPID,
-                        dragItemID: groupedTaskItemID(for: window)
-                    )
-                case .group(let group):
-                    let groupView = makeGroupView(
-                        for: group,
-                        frontmostPID: frontmostPID,
-                        dragItemID: groupedTaskItemID(forGroupID: group.id)
-                    )
-                    taskZoneStackView.addArrangedSubview(groupView)
-                    groupView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+                let itemID = groupedTaskItemID(for: item)
+                let view = groupedTaskView(for: item, itemID: itemID, frontmostPID: frontmostPID)
+                desiredViews.append(view)
+                retainedItemIDs.insert(itemID)
 
+                switch item {
+                case .group(let group):
                     if group.isExpanded {
-                        expandedGroupView = groupView
+                        expandedGroupView = view
                     }
+                case .window:
+                    break
                 }
             }
+
+            removeStaleTaskItemViews(retaining: retainedItemIDs)
+            reconcileArrangedSubviews(desiredViews, in: taskZoneStackView)
             return
         }
 
         expandedGroupID = nil
-
-        for window in orderedUngroupedWindows(from: scopedWindows, frontmostWindowID: frontmostWindowID) {
-            addTaskButton(
+        let orderedWindows = orderedUngroupedWindows(from: scopedWindows)
+        let desiredViews = orderedWindows.map { window in
+            taskButtonView(
                 for: window,
+                itemID: ungroupedTaskItemID(for: window),
                 frontmostPID: frontmostPID,
                 dragItemID: ungroupedTaskItemID(for: window)
             )
         }
+        let retainedItemIDs = Set(orderedWindows.map(ungroupedTaskItemID(for:)))
+
+        removeStaleTaskItemViews(retaining: retainedItemIDs)
+        reconcileArrangedSubviews(desiredViews, in: taskZoneStackView)
     }
 
     private func scopedVisibleWindows() -> [WindowInfo] {
@@ -320,7 +318,24 @@ final class TaskbarContentView: NSView {
         layoutSubtreeIfNeeded()
     }
 
-    private func addTaskButton(for window: WindowInfo, frontmostPID: pid_t?, dragItemID: String?) {
+    private func taskButtonView(
+        for window: WindowInfo,
+        itemID: String,
+        frontmostPID: pid_t?,
+        dragItemID: String?
+    ) -> TaskButtonView {
+        if let existingView = taskItemViews[itemID] as? TaskButtonView {
+            existingView.update(
+                windowInfo: window,
+                isActive: window.pid == frontmostPID,
+                hasBadge: hasBadge(for: window.bundleIdentifier),
+                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
+            )
+            return existingView
+        }
+
+        removeCachedTaskItemView(for: itemID)
+
         let buttonView = TaskButtonView(
             windowInfo: window,
             isActive: window.pid == frontmostPID,
@@ -328,77 +343,93 @@ final class TaskbarContentView: NSView {
             isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
             settings: settings,
             blacklistManager: blacklistManager,
-            dragConfiguration: dragItemID.map(makeTaskDragConfiguration(for:))
+            dragConfiguration: dragItemID.flatMap { [self] in
+                makeTaskDragConfiguration(for: $0)
+            }
         ) { [weak self] windowInfo in
             self?.activate(windowInfo: windowInfo)
         }
-        taskZoneStackView.addArrangedSubview(buttonView)
         buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        taskItemViews[itemID] = buttonView
+        return buttonView
     }
 
-    private func makeGroupView(for group: AppGroup, frontmostPID: pid_t?, dragItemID: String) -> NSView {
-        let groupStackView = NSStackView()
-        groupStackView.translatesAutoresizingMaskIntoConstraints = false
-        groupStackView.orientation = .horizontal
-        groupStackView.alignment = .centerY
-        groupStackView.spacing = taskZoneStackView.spacing
-        groupStackView.edgeInsets = NSEdgeInsetsZero
-        groupStackView.distribution = .fill
+    private func groupedTaskView(for item: TaskZoneItem, itemID: String, frontmostPID: pid_t?) -> NSView {
+        switch item {
+        case .window(let window):
+            return taskButtonView(
+                for: window,
+                itemID: itemID,
+                frontmostPID: frontmostPID,
+                dragItemID: groupedTaskItemID(for: window)
+            )
+        case .group(let group):
+            if let existingView = taskItemViews[itemID] as? TaskZoneGroupContainerView {
+                existingView.update(
+                    group: group,
+                    frontmostPID: frontmostPID,
+                    isActive: group.windows.contains { $0.pid == frontmostPID },
+                    hasBadge: hasBadge(for: group.id),
+                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted
+                )
+                return existingView
+            }
 
-        let headerView = TaskZoneGroupButtonView(
-            appGroup: group,
-            hasBadge: hasBadge(for: group.id),
-            isActive: group.windows.contains { $0.pid == frontmostPID },
-            settings: settings,
-            dragConfiguration: makeTaskDragConfiguration(for: dragItemID)
-        ) { [weak self] in
-            self?.toggleGroupExpansion(for: group.id)
-        }
-        groupStackView.addArrangedSubview(headerView)
-        headerView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            removeCachedTaskItemView(for: itemID)
 
-        if group.isExpanded {
-            for window in group.windows {
-                let buttonView = TaskButtonView(
-                    windowInfo: window,
-                    isActive: window.pid == frontmostPID,
-                    hasBadge: hasBadge(for: window.bundleIdentifier),
-                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
-                    settings: settings,
-                    blacklistManager: blacklistManager
-                ) { [weak self] windowInfo in
+            let groupView = TaskZoneGroupContainerView(
+                group: group,
+                frontmostPID: frontmostPID,
+                isActive: group.windows.contains { $0.pid == frontmostPID },
+                hasBadge: hasBadge(for: group.id),
+                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                settings: settings,
+                blacklistManager: blacklistManager,
+                dragConfiguration: makeTaskDragConfiguration(for: groupedTaskItemID(forGroupID: group.id)),
+                badgeProvider: { [weak self] bundleIdentifier in
+                    self?.hasBadge(for: bundleIdentifier) ?? false
+                },
+                activationHandler: { [weak self] in
+                    self?.toggleGroupExpansion(for: group.id)
+                },
+                windowActivationHandler: { [weak self] windowInfo in
                     self?.activate(windowInfo: windowInfo)
                 }
-                groupStackView.addArrangedSubview(buttonView)
-                buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
-            }
+            )
+            taskItemViews[itemID] = groupView
+            return groupView
         }
-
-        return groupStackView
     }
 
-    private func orderedUngroupedWindows(from windows: [WindowInfo], frontmostWindowID: String?) -> [WindowInfo] {
+    private func removeCachedTaskItemView(for itemID: String) {
+        guard let view = taskItemViews.removeValue(forKey: itemID) else {
+            return
+        }
+
+        taskZoneStackView.removeArrangedSubview(view)
+        view.removeFromSuperview()
+    }
+
+    private func removeStaleTaskItemViews(retaining retainedItemIDs: Set<String>) {
+        let staleItemIDs = Set(taskItemViews.keys).subtracting(retainedItemIDs)
+        for itemID in staleItemIDs {
+            removeCachedTaskItemView(for: itemID)
+        }
+    }
+
+    private func orderedUngroupedWindows(from windows: [WindowInfo]) -> [WindowInfo] {
         let ids = windows.map(ungroupedTaskItemID(for:))
         ungroupedTaskOrderState.reconcile(currentIDs: ids)
-
-        if let frontmostWindowID {
-            ungroupedTaskOrderState.promoteToFront(ungroupedTaskItemID(forWindowID: frontmostWindowID))
-        }
 
         let orderedIDs = ungroupedTaskOrderState.arrangedIDs(for: ids)
         let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { (ungroupedTaskItemID(for: $0), $0) })
         return orderedIDs.compactMap { windowsByID[$0] }
     }
 
-    private func orderedGroupedTaskItems(from windows: [WindowInfo], frontmostWindowID: String?) -> [TaskZoneItem] {
+    private func orderedGroupedTaskItems(from windows: [WindowInfo]) -> [TaskZoneItem] {
         let items = groupedTaskItems(from: windows)
         let ids = items.map(groupedTaskItemID(for:))
         groupedTaskOrderState.reconcile(currentIDs: ids)
-
-        if let frontmostWindowID,
-           let frontmostWindow = windows.first(where: { $0.id == frontmostWindowID }) {
-            groupedTaskOrderState.promoteToFront(groupedTaskItemID(for: frontmostWindow))
-        }
 
         let orderedIDs = groupedTaskOrderState.arrangedIDs(for: ids)
         let itemsByID = Dictionary(uniqueKeysWithValues: items.map { (groupedTaskItemID(for: $0), $0) })
@@ -826,18 +857,9 @@ private struct TaskZoneOrderingState {
 
         let knownItemIDs = Set(nonPositionedItemIDs).union(userPositionedRanks.keys)
         let newItemIDs = currentIDs.filter { !knownItemIDs.contains($0) }
-        for itemID in newItemIDs.reversed() {
-            nonPositionedItemIDs.insert(itemID, at: 0)
+        for itemID in newItemIDs {
+            nonPositionedItemIDs.append(itemID)
         }
-    }
-
-    mutating func promoteToFront(_ itemID: String) {
-        guard userPositionedRanks[itemID] == nil else {
-            return
-        }
-
-        nonPositionedItemIDs.removeAll { $0 == itemID }
-        nonPositionedItemIDs.insert(itemID, at: 0)
     }
 
     mutating func applyManualOrder(_ orderedIDs: [String], userPositionedItemID: String) {
@@ -909,8 +931,8 @@ private struct TaskZoneOrderingState {
 }
 
 private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
-    private let appGroup: AppGroup
-    private let hasBadge: Bool
+    private var appGroup: AppGroup
+    private var hasBadge: Bool
     private let settings: TaskbarSettings
     private let activationHandler: () -> Void
     private let dragConfiguration: TaskButtonDragConfiguration?
@@ -1099,6 +1121,13 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
         updateBackgroundColor()
     }
 
+    func update(appGroup: AppGroup, hasBadge: Bool, isActive: Bool) {
+        self.appGroup = appGroup
+        self.hasBadge = hasBadge
+        self.isActive = isActive
+        updateAppearance()
+    }
+
     private func updateBackgroundColor() {
         if isActive {
             layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
@@ -1219,5 +1248,155 @@ private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         updateDropIndicator(nil)
+    }
+}
+
+private final class TaskZoneGroupContainerView: NSView {
+    private let settings: TaskbarSettings
+    private let blacklistManager: BlacklistManager
+    private let badgeProvider: (String?) -> Bool
+    private let windowActivationHandler: (WindowInfo) -> Void
+    private let stackView = NSStackView()
+    private let headerView: TaskZoneGroupButtonView
+    private var childViews: [String: TaskButtonView] = [:]
+
+    init(
+        group: AppGroup,
+        frontmostPID: pid_t?,
+        isActive: Bool,
+        hasBadge: Bool,
+        isAccessibilityAvailable: Bool,
+        settings: TaskbarSettings,
+        blacklistManager: BlacklistManager,
+        dragConfiguration: TaskButtonDragConfiguration,
+        badgeProvider: @escaping (String?) -> Bool,
+        activationHandler: @escaping () -> Void,
+        windowActivationHandler: @escaping (WindowInfo) -> Void
+    ) {
+        self.settings = settings
+        self.blacklistManager = blacklistManager
+        self.badgeProvider = badgeProvider
+        self.windowActivationHandler = windowActivationHandler
+        headerView = TaskZoneGroupButtonView(
+            appGroup: group,
+            hasBadge: hasBadge,
+            isActive: isActive,
+            settings: settings,
+            dragConfiguration: dragConfiguration,
+            activationHandler: activationHandler
+        )
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.orientation = .horizontal
+        stackView.alignment = .centerY
+        stackView.spacing = 8
+        stackView.edgeInsets = NSEdgeInsetsZero
+        stackView.distribution = .fill
+        addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        headerView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        update(
+            group: group,
+            frontmostPID: frontmostPID,
+            isActive: isActive,
+            hasBadge: hasBadge,
+            isAccessibilityAvailable: isAccessibilityAvailable
+        )
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        group: AppGroup,
+        frontmostPID: pid_t?,
+        isActive: Bool,
+        hasBadge: Bool,
+        isAccessibilityAvailable: Bool
+    ) {
+        headerView.update(appGroup: group, hasBadge: hasBadge, isActive: isActive)
+
+        var desiredViews: [NSView] = [headerView]
+        var retainedChildIDs = Set<String>()
+
+        if group.isExpanded {
+            for window in group.windows {
+                let windowID = window.id
+                let buttonView: TaskButtonView
+
+                if let existingView = childViews[windowID] {
+                    existingView.update(
+                        windowInfo: window,
+                        isActive: window.pid == frontmostPID,
+                        hasBadge: badgeProvider(window.bundleIdentifier),
+                        isAccessibilityAvailable: isAccessibilityAvailable
+                    )
+                    buttonView = existingView
+                } else {
+                    let newButtonView = TaskButtonView(
+                        windowInfo: window,
+                        isActive: window.pid == frontmostPID,
+                        hasBadge: badgeProvider(window.bundleIdentifier),
+                        isAccessibilityAvailable: isAccessibilityAvailable,
+                        settings: settings,
+                        blacklistManager: blacklistManager
+                    ) { [windowActivationHandler] windowInfo in
+                        windowActivationHandler(windowInfo)
+                    }
+                    newButtonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+                    childViews[windowID] = newButtonView
+                    buttonView = newButtonView
+                }
+
+                desiredViews.append(buttonView)
+                retainedChildIDs.insert(windowID)
+            }
+        }
+
+        let staleChildIDs = Set(childViews.keys).subtracting(retainedChildIDs)
+        for childID in staleChildIDs {
+            guard let view = childViews.removeValue(forKey: childID) else {
+                continue
+            }
+
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        reconcileArrangedSubviews(desiredViews, in: stackView)
+    }
+}
+
+private func reconcileArrangedSubviews(_ desiredViews: [NSView], in stackView: NSStackView) {
+    let desiredIdentifiers = Set(desiredViews.map(ObjectIdentifier.init))
+
+    for view in stackView.arrangedSubviews where !desiredIdentifiers.contains(ObjectIdentifier(view)) {
+        stackView.removeArrangedSubview(view)
+        view.removeFromSuperview()
+    }
+
+    for (index, view) in desiredViews.enumerated() {
+        let currentSubviews = stackView.arrangedSubviews
+
+        if currentSubviews.indices.contains(index), currentSubviews[index] === view {
+            continue
+        }
+
+        if currentSubviews.contains(where: { $0 === view }) {
+            stackView.removeArrangedSubview(view)
+        }
+
+        stackView.insertArrangedSubview(view, at: index)
     }
 }

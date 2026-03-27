@@ -23,6 +23,7 @@ final class WindowManager: ObservableObject {
     private var provisionalBounds: [String: CGRect] = [:]
     private var provisionalElements: [String: AXUIElement] = [:]
     private var promotionWorkItems: [String: DispatchWorkItem] = [:]
+    private var windowOrder: [String] = []
 
     init(
         accessibilityService: AccessibilityService = AccessibilityService(),
@@ -72,6 +73,8 @@ final class WindowManager: ObservableObject {
         }
         let applicationsByPID = Dictionary(uniqueKeysWithValues: regularApplications.map { ($0.processIdentifier, $0) })
         let cgSnapshots = fetchCGWindowSnapshots(applicationsByPID: applicationsByPID)
+        var currentWindowOrder: [String] = []
+        var seenWindowIDs = Set<String>()
 
         var nextAuthoritative: [CGWindowID: WindowInfo] = Dictionary(
             uniqueKeysWithValues: cgSnapshots.map { snapshot in
@@ -88,6 +91,7 @@ final class WindowManager: ObservableObject {
                     isHidden: application?.isHidden ?? false,
                     isProvisional: false
                 )
+                Self.appendWindowID(info.id, to: &currentWindowOrder, seenWindowIDs: &seenWindowIDs)
 
                 return (snapshot.id, info)
             }
@@ -139,11 +143,13 @@ final class WindowManager: ObservableObject {
                     )
                     nextAuthoritative[windowID] = merged
                     nextAuthoritativeBounds[windowID] = nextAuthoritativeBounds[windowID] ?? frame
+                    Self.appendWindowID(merged.id, to: &currentWindowOrder, seenWindowIDs: &seenWindowIDs)
                     removeProvisionalWindow(forKey: provisionalKey)
                 } else {
                     provisional[provisionalKey] = baseInfo
                     provisionalBounds[provisionalKey] = frame
                     provisionalElements[provisionalKey] = axWindow
+                    Self.appendWindowID(baseInfo.id, to: &currentWindowOrder, seenWindowIDs: &seenWindowIDs)
                     schedulePromotionRetry(for: provisionalKey)
                 }
             }
@@ -155,7 +161,7 @@ final class WindowManager: ObservableObject {
 
         authoritative = nextAuthoritative
         authoritativeBounds = nextAuthoritativeBounds
-        publishWindows()
+        publishWindows(currentWindowOrder: currentWindowOrder)
     }
 
     func windows(on screen: NSScreen) -> [WindowInfo] {
@@ -410,6 +416,7 @@ final class WindowManager: ObservableObject {
             }
         }
 
+        replaceWindowOrderID(oldID: key, newID: provisionalWindow.withCGWindowID(windowID).id)
         removeProvisionalWindow(forKey: key)
         return true
     }
@@ -440,22 +447,18 @@ final class WindowManager: ObservableObject {
         )
     }
 
-    private func publishWindows() {
+    private func publishWindows(currentWindowOrder: [String]? = nil) {
         let combined = (Array(authoritative.values) + Array(provisional.values)).filter { window in
             !isBlacklisted(bundleIdentifier: window.bundleIdentifier)
         }
+        let windowsByID = Dictionary(uniqueKeysWithValues: combined.map { ($0.id, $0) })
+        let reconciledOrder = Self.reconcileStableWindowOrder(
+            previousOrder: windowOrder,
+            currentOrder: currentWindowOrder ?? combined.map(\.id)
+        )
 
-        windows = combined.sorted {
-            if $0.appName != $1.appName {
-                return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
-            }
-
-            if $0.title != $1.title {
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
-
-            return $0.id < $1.id
-        }
+        windowOrder = reconciledOrder.filter { windowsByID[$0] != nil }
+        windows = windowOrder.compactMap { windowsByID[$0] }
 
         publishDerivedState()
     }
@@ -604,6 +607,53 @@ final class WindowManager: ObservableObject {
                 return lhs.pid < rhs.pid
             }
     }
+
+    static func reconcileStableWindowOrder(previousOrder: [String], currentOrder: [String]) -> [String] {
+        let currentIDSet = Set(currentOrder)
+        var reconciledOrder = previousOrder.filter { currentIDSet.contains($0) }
+        var seenIDs = Set(reconciledOrder)
+
+        for windowID in currentOrder where seenIDs.insert(windowID).inserted {
+            reconciledOrder.append(windowID)
+        }
+
+        return reconciledOrder
+    }
+
+    private static func appendWindowID(
+        _ windowID: String,
+        to orderedWindowIDs: inout [String],
+        seenWindowIDs: inout Set<String>
+    ) {
+        guard seenWindowIDs.insert(windowID).inserted else {
+            return
+        }
+
+        orderedWindowIDs.append(windowID)
+    }
+
+    private func replaceWindowOrderID(oldID: String, newID: String) {
+        guard oldID != newID else {
+            return
+        }
+
+        let existingNewIndex = windowOrder.firstIndex(of: newID)
+
+        if let oldIndex = windowOrder.firstIndex(of: oldID) {
+            if existingNewIndex == nil {
+                windowOrder[oldIndex] = newID
+            } else {
+                windowOrder.remove(at: oldIndex)
+            }
+            return
+        }
+
+        guard existingNewIndex == nil else {
+            return
+        }
+
+        windowOrder.append(newID)
+    }
 }
 
 struct RunningApplicationCandidate: Equatable {
@@ -618,4 +668,21 @@ private struct CGWindowSnapshot {
     let appName: String
     let title: String
     let bounds: CGRect
+}
+
+private extension WindowInfo {
+    func withCGWindowID(_ cgWindowID: CGWindowID) -> WindowInfo {
+        WindowInfo(
+            pid: pid,
+            cgWindowID: cgWindowID,
+            provisionalID: nil,
+            appName: appName,
+            title: title,
+            icon: icon,
+            bundleIdentifier: bundleIdentifier,
+            isMinimized: isMinimized,
+            isHidden: isHidden,
+            isProvisional: false
+        )
+    }
 }

@@ -70,3 +70,23 @@ func trayApplicationCandidatesRespectZoneRoutingAndAlphabeticalOrder() {
     #expect(result.map(\.pid) == [55, 44])
     #expect(result.map(\.name) == ["Arc", "notes"])
 }
+
+@Test
+func stableWindowOrderKeepsExistingPositionsAndAppendsNewWindowsToTheEnd() {
+    let result = WindowManager.reconcileStableWindowOrder(
+        previousOrder: ["window:alpha", "window:beta", "window:gamma"],
+        currentOrder: ["window:beta", "window:delta", "window:alpha"]
+    )
+
+    #expect(result == ["window:alpha", "window:beta", "window:delta"])
+}
+
+@Test
+func stableWindowOrderDeduplicatesCurrentRefreshIDs() {
+    let result = WindowManager.reconcileStableWindowOrder(
+        previousOrder: [],
+        currentOrder: ["window:alpha", "window:alpha", "window:beta"]
+    )
+
+    #expect(result == ["window:alpha", "window:beta"])
+}

@@ -35,9 +35,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private let settings: TaskbarSettings
-    private let windowInfo: WindowInfo
-    private let hasBadge: Bool
-    private let isAccessibilityAvailable: Bool
+    private var windowInfo: WindowInfo
+    private var hasBadge: Bool
+    private var isAccessibilityAvailable: Bool
     private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
     private let dragConfiguration: TaskButtonDragConfiguration?
@@ -529,6 +529,35 @@ final class TaskButtonView: NSView, NSDraggingSource {
         iconView.alphaValue = iconAlpha()
         updateBackgroundColor()
         invalidateIntrinsicContentSize()
+    }
+
+    func update(
+        windowInfo: WindowInfo,
+        isActive: Bool,
+        hasBadge: Bool,
+        isAccessibilityAvailable: Bool
+    ) {
+        let previousThumbnailEligibility = shouldShowThumbnailPopover
+        let previousWindowID = self.windowInfo.cgWindowID
+
+        self.windowInfo = windowInfo
+        self.isActive = isActive
+        self.hasBadge = hasBadge
+        self.isAccessibilityAvailable = isAccessibilityAvailable
+
+        if previousWindowID != windowInfo.cgWindowID {
+            windowElement = Self.resolveWindowElement(
+                for: windowInfo,
+                application: owningApplication,
+                accessibilityService: accessibilityService
+            )
+        }
+
+        if previousThumbnailEligibility && !shouldShowThumbnailPopover {
+            cancelHoverPreview()
+        }
+
+        updateAppearance()
     }
 
     @objc
