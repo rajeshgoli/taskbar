@@ -15,8 +15,6 @@ final class LauncherButtonView: NSView {
     private let accessibilityService: AccessibilityService
 
     private let iconView = NSImageView()
-    private let underlineView = NSView()
-    private let dotView = NSView()
 
     private var state: State {
         if !isRunning {
@@ -86,19 +84,7 @@ final class LauncherButtonView: NSView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
-        underlineView.wantsLayer = true
-        underlineView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        underlineView.layer?.cornerRadius = 1.5
-        underlineView.translatesAutoresizingMaskIntoConstraints = false
-
-        dotView.wantsLayer = true
-        dotView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        dotView.layer?.cornerRadius = 2
-        dotView.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(iconView)
-        addSubview(underlineView)
-        addSubview(dotView)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 36),
@@ -106,25 +92,13 @@ final class LauncherButtonView: NSView {
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 28),
-            iconView.heightAnchor.constraint(equalToConstant: 28),
-
-            underlineView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            underlineView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            underlineView.widthAnchor.constraint(equalToConstant: 18),
-            underlineView.heightAnchor.constraint(equalToConstant: 2),
-
-            dotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
-            dotView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            dotView.widthAnchor.constraint(equalToConstant: 4),
-            dotView.heightAnchor.constraint(equalToConstant: 4)
+            iconView.heightAnchor.constraint(equalToConstant: 28)
         ])
     }
 
     private func updateAppearance() {
         toolTip = pinnedApp.name
         iconView.image = displayIcon()
-        underlineView.isHidden = state != .runningWithVisibleWindows
-        dotView.isHidden = state != .runningWithoutVisibleWindows
     }
 
     private func displayIcon() -> NSImage? {
