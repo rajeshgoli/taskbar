@@ -1,4 +1,0 @@
-module DeskBarPackageTests {
-    header "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarPackageTests.build/DeskBarPackageTests-Swift.h"
-    requires objc
-}
