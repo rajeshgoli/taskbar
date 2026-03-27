@@ -170,6 +170,19 @@ final class TaskButtonView: NSView {
         activationHandler(windowInfo)
     }
 
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+
+        guard settings.middleClickCloses else {
+            return
+        }
+
+        closeWindow(nil)
+    }
+
     override func rightMouseDown(with event: NSEvent) {
         let menu = makeContextMenu()
         NSMenu.popUpContextMenu(menu, with: event, for: self)
