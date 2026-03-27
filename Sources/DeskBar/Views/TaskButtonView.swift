@@ -355,13 +355,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private func resolvedToolTip() -> String {
-        let title = displayTitle()
-
-        if windowInfo.isProvisional || windowInfo.cgWindowID == nil || windowInfo.cgWindowID == 0 {
-            return "\(title) (syncing...)"
-        }
-
-        return title
+        displayTitle()
     }
 
     private var shouldShowThumbnailPopover: Bool {
