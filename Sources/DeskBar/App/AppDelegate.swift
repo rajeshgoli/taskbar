@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         workspaceObservers.forEach(workspaceCenter.removeObserver)
         dockManager?.restoreDockState()
+        dockManager?.removeWatchdog()
     }
 
     @objc

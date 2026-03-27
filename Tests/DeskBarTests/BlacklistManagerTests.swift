@@ -6,7 +6,7 @@ import Testing
 struct BlacklistManagerTests {
     @Test
     func addPersistsAndPostsNotification() async throws {
-        let defaults = UserDefaults(suiteName: "com.deskbar.app")!
+        let defaults = UserDefaults.standard
         defaults.removeObject(forKey: "blacklistedApps")
 
         let manager = BlacklistManager()
@@ -32,7 +32,7 @@ struct BlacklistManagerTests {
 
     @Test
     func removePersistsAndPostsNotification() async throws {
-        let defaults = UserDefaults(suiteName: "com.deskbar.app")!
+        let defaults = UserDefaults.standard
         defaults.set(["com.example.app"], forKey: "blacklistedApps")
 
         let manager = BlacklistManager()
