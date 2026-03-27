@@ -27,6 +27,8 @@ final class TaskbarContentView: NSView {
     private var globalClickMonitor: Any?
     private var expandedGroupID: String?
     private weak var expandedGroupView: NSView?
+    private var groupedTaskOrderState = TaskZoneOrderingState()
+    private var ungroupedTaskOrderState = TaskZoneOrderingState()
 
     init(
         windowManager: WindowManager,
@@ -213,6 +215,13 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        settings.$dragReorder
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
         settings.$taskbarHeight
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -250,14 +259,25 @@ final class TaskbarContentView: NSView {
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let scopedWindows = scopedVisibleWindows()
+        let frontmostWindowID = currentFrontmostWindowID(in: scopedWindows)
 
         if settings.groupByApp {
-            for item in groupedTaskItems(from: scopedWindows) {
+            let items = orderedGroupedTaskItems(from: scopedWindows, frontmostWindowID: frontmostWindowID)
+
+            for item in items {
                 switch item {
                 case .window(let window):
-                    addTaskButton(for: window, frontmostPID: frontmostPID)
+                    addTaskButton(
+                        for: window,
+                        frontmostPID: frontmostPID,
+                        dragItemID: groupedTaskItemID(for: window)
+                    )
                 case .group(let group):
-                    let groupView = makeGroupView(for: group, frontmostPID: frontmostPID)
+                    let groupView = makeGroupView(
+                        for: group,
+                        frontmostPID: frontmostPID,
+                        dragItemID: groupedTaskItemID(forGroupID: group.id)
+                    )
                     taskZoneStackView.addArrangedSubview(groupView)
                     groupView.heightAnchor.constraint(equalToConstant: 32).isActive = true
 
@@ -271,8 +291,12 @@ final class TaskbarContentView: NSView {
 
         expandedGroupID = nil
 
-        for window in scopedWindows {
-            addTaskButton(for: window, frontmostPID: frontmostPID)
+        for window in orderedUngroupedWindows(from: scopedWindows, frontmostWindowID: frontmostWindowID) {
+            addTaskButton(
+                for: window,
+                frontmostPID: frontmostPID,
+                dragItemID: ungroupedTaskItemID(for: window)
+            )
         }
     }
 
@@ -295,14 +319,15 @@ final class TaskbarContentView: NSView {
         layoutSubtreeIfNeeded()
     }
 
-    private func addTaskButton(for window: WindowInfo, frontmostPID: pid_t?) {
+    private func addTaskButton(for window: WindowInfo, frontmostPID: pid_t?, dragItemID: String?) {
         let buttonView = TaskButtonView(
             windowInfo: window,
             isActive: window.pid == frontmostPID,
             hasBadge: hasBadge(for: window.bundleIdentifier),
             isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
             settings: settings,
-            blacklistManager: blacklistManager
+            blacklistManager: blacklistManager,
+            dragConfiguration: dragItemID.map(makeTaskDragConfiguration(for:))
         ) { [weak self] windowInfo in
             self?.activate(windowInfo: windowInfo)
         }
@@ -310,7 +335,7 @@ final class TaskbarContentView: NSView {
         buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
     }
 
-    private func makeGroupView(for group: AppGroup, frontmostPID: pid_t?) -> NSView {
+    private func makeGroupView(for group: AppGroup, frontmostPID: pid_t?, dragItemID: String) -> NSView {
         let groupStackView = NSStackView()
         groupStackView.translatesAutoresizingMaskIntoConstraints = false
         groupStackView.orientation = .horizontal
@@ -319,10 +344,12 @@ final class TaskbarContentView: NSView {
         groupStackView.edgeInsets = NSEdgeInsetsZero
         groupStackView.distribution = .fill
 
-        let headerView = GroupHeaderButton(
+        let headerView = TaskZoneGroupButtonView(
             appGroup: group,
             hasBadge: hasBadge(for: group.id),
-            isActive: group.windows.contains { $0.pid == frontmostPID }
+            isActive: group.windows.contains { $0.pid == frontmostPID },
+            settings: settings,
+            dragConfiguration: makeTaskDragConfiguration(for: dragItemID)
         ) { [weak self] in
             self?.toggleGroupExpansion(for: group.id)
         }
@@ -347,6 +374,34 @@ final class TaskbarContentView: NSView {
         }
 
         return groupStackView
+    }
+
+    private func orderedUngroupedWindows(from windows: [WindowInfo], frontmostWindowID: String?) -> [WindowInfo] {
+        let ids = windows.map(ungroupedTaskItemID(for:))
+        ungroupedTaskOrderState.reconcile(currentIDs: ids)
+
+        if let frontmostWindowID {
+            ungroupedTaskOrderState.promoteToFront(ungroupedTaskItemID(forWindowID: frontmostWindowID))
+        }
+
+        let orderedIDs = ungroupedTaskOrderState.arrangedIDs(for: ids)
+        let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { (ungroupedTaskItemID(for: $0), $0) })
+        return orderedIDs.compactMap { windowsByID[$0] }
+    }
+
+    private func orderedGroupedTaskItems(from windows: [WindowInfo], frontmostWindowID: String?) -> [TaskZoneItem] {
+        let items = groupedTaskItems(from: windows)
+        let ids = items.map(groupedTaskItemID(for:))
+        groupedTaskOrderState.reconcile(currentIDs: ids)
+
+        if let frontmostWindowID,
+           let frontmostWindow = windows.first(where: { $0.id == frontmostWindowID }) {
+            groupedTaskOrderState.promoteToFront(groupedTaskItemID(for: frontmostWindow))
+        }
+
+        let orderedIDs = groupedTaskOrderState.arrangedIDs(for: ids)
+        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { (groupedTaskItemID(for: $0), $0) })
+        return orderedIDs.compactMap { itemsByID[$0] }
     }
 
     private func groupedTaskItems(from windows: [WindowInfo]) -> [TaskZoneItem] {
@@ -390,6 +445,180 @@ final class TaskbarContentView: NSView {
             expandedGroup.isExpanded = expandedGroup.id == expandedGroupID
             return .group(expandedGroup)
         }
+    }
+
+    private func currentFrontmostWindowID(in visibleWindows: [WindowInfo]) -> String? {
+        guard let application = NSWorkspace.shared.frontmostApplication else {
+            return nil
+        }
+
+        let matchingVisibleWindows = visibleWindows.filter { $0.pid == application.processIdentifier }
+        guard !matchingVisibleWindows.isEmpty else {
+            return nil
+        }
+
+        let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+        let prioritizedAttributes: [CFString] = [
+            kAXFocusedWindowAttribute as CFString,
+            kAXMainWindowAttribute as CFString
+        ]
+
+        for attribute in prioritizedAttributes {
+            if let element = copyWindowAttribute(from: applicationElement, attribute: attribute),
+               let windowID = matchingVisibleWindowID(for: element, in: matchingVisibleWindows) {
+                return windowID
+            }
+        }
+
+        return matchingVisibleWindows.count == 1 ? matchingVisibleWindows.first?.id : nil
+    }
+
+    private func matchingVisibleWindowID(for element: AXUIElement, in windows: [WindowInfo]) -> String? {
+        if let cgWindowID = axWindowID(for: element),
+           let matchedWindow = windows.first(where: { $0.cgWindowID == cgWindowID }) {
+            return matchedWindow.id
+        }
+
+        let normalizedTitle = axTitle(for: element) ?? ""
+        if !normalizedTitle.isEmpty,
+           let matchedWindow = windows.first(where: {
+               $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTitle
+           }) {
+            return matchedWindow.id
+        }
+
+        return windows.count == 1 ? windows.first?.id : nil
+    }
+
+    private func copyWindowAttribute(from element: AXUIElement, attribute: CFString) -> AXUIElement? {
+        var value: CFTypeRef?
+
+        guard
+            AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+            let value
+        else {
+            return nil
+        }
+
+        let cfValue = value as CFTypeRef
+        guard CFGetTypeID(cfValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+
+        return unsafeBitCast(cfValue, to: AXUIElement.self)
+    }
+
+    private func makeTaskDragConfiguration(for itemID: String) -> TaskButtonDragConfiguration {
+        TaskButtonDragConfiguration(
+            payload: DeskBarDragPayload(zone: .task, itemID: itemID),
+            validateDrop: { [weak self] payload, edge in
+                self?.validateTaskDrop(payload: payload, targetItemID: itemID, edge: edge) ?? false
+            },
+            acceptDrop: { [weak self] payload, edge in
+                self?.acceptTaskDrop(payload: payload, targetItemID: itemID, edge: edge) ?? false
+            }
+        )
+    }
+
+    private func validateTaskDrop(
+        payload: DeskBarDragPayload,
+        targetItemID: String,
+        edge: DeskBarDropEdge
+    ) -> Bool {
+        guard settings.dragReorder, payload.zone == .task else {
+            return false
+        }
+
+        return reorderedItemIDs(
+            currentIDs: currentTaskOrderIDs(),
+            movingItemID: payload.itemID,
+            targetItemID: targetItemID,
+            edge: edge
+        ) != nil
+    }
+
+    private func acceptTaskDrop(
+        payload: DeskBarDragPayload,
+        targetItemID: String,
+        edge: DeskBarDropEdge
+    ) -> Bool {
+        guard let reorderedIDs = reorderedItemIDs(
+            currentIDs: currentTaskOrderIDs(),
+            movingItemID: payload.itemID,
+            targetItemID: targetItemID,
+            edge: edge
+        ) else {
+            return false
+        }
+
+        if settings.groupByApp {
+            groupedTaskOrderState.applyManualOrder(reorderedIDs, userPositionedItemID: payload.itemID)
+        } else {
+            ungroupedTaskOrderState.applyManualOrder(reorderedIDs, userPositionedItemID: payload.itemID)
+        }
+
+        rebuildTaskZone()
+        return true
+    }
+
+    private func currentTaskOrderIDs() -> [String] {
+        let scopedWindows = scopedVisibleWindows()
+
+        if settings.groupByApp {
+            let items = groupedTaskItems(from: scopedWindows)
+            return groupedTaskOrderState.arrangedIDs(for: items.map(groupedTaskItemID(for:)))
+        }
+
+        return ungroupedTaskOrderState.arrangedIDs(for: scopedWindows.map(ungroupedTaskItemID(for:)))
+    }
+
+    private func reorderedItemIDs(
+        currentIDs: [String],
+        movingItemID: String,
+        targetItemID: String,
+        edge: DeskBarDropEdge
+    ) -> [String]? {
+        guard
+            movingItemID != targetItemID,
+            let sourceIndex = currentIDs.firstIndex(of: movingItemID),
+            let targetIndex = currentIDs.firstIndex(of: targetItemID)
+        else {
+            return nil
+        }
+
+        var reorderedIDs = currentIDs
+        reorderedIDs.remove(at: sourceIndex)
+
+        let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+        let insertionIndex = edge == .leading ? adjustedTargetIndex : adjustedTargetIndex + 1
+        reorderedIDs.insert(movingItemID, at: min(max(insertionIndex, 0), reorderedIDs.count))
+
+        return reorderedIDs == currentIDs ? nil : reorderedIDs
+    }
+
+    private func groupedTaskItemID(for item: TaskZoneItem) -> String {
+        switch item {
+        case .window(let window):
+            return groupedTaskItemID(for: window)
+        case .group(let group):
+            return groupedTaskItemID(forGroupID: group.id)
+        }
+    }
+
+    private func groupedTaskItemID(for window: WindowInfo) -> String {
+        groupedTaskItemID(forGroupID: resolvedGroupID(for: window))
+    }
+
+    private func groupedTaskItemID(forGroupID groupID: String) -> String {
+        "group:\(groupID)"
+    }
+
+    private func ungroupedTaskItemID(for window: WindowInfo) -> String {
+        ungroupedTaskItemID(forWindowID: window.id)
+    }
+
+    private func ungroupedTaskItemID(forWindowID windowID: String) -> String {
+        "window:\(windowID)"
     }
 
     private func resolvedGroupID(for window: WindowInfo) -> String {
@@ -581,4 +810,413 @@ final class TaskbarContentView: NSView {
 private enum TaskZoneItem {
     case window(WindowInfo)
     case group(AppGroup)
+}
+
+private struct TaskZoneOrderingState {
+    private(set) var nonPositionedItemIDs: [String] = []
+    private(set) var userPositionedRanks: [String: Int] = [:]
+
+    mutating func reconcile(currentIDs: [String]) {
+        let currentIDSet = Set(currentIDs)
+        userPositionedRanks = userPositionedRanks.filter { currentIDSet.contains($0.key) }
+        nonPositionedItemIDs = nonPositionedItemIDs.filter {
+            currentIDSet.contains($0) && userPositionedRanks[$0] == nil
+        }
+
+        let knownItemIDs = Set(nonPositionedItemIDs).union(userPositionedRanks.keys)
+        let newItemIDs = currentIDs.filter { !knownItemIDs.contains($0) }
+        for itemID in newItemIDs.reversed() {
+            nonPositionedItemIDs.insert(itemID, at: 0)
+        }
+    }
+
+    mutating func promoteToFront(_ itemID: String) {
+        guard userPositionedRanks[itemID] == nil else {
+            return
+        }
+
+        nonPositionedItemIDs.removeAll { $0 == itemID }
+        nonPositionedItemIDs.insert(itemID, at: 0)
+    }
+
+    mutating func applyManualOrder(_ orderedIDs: [String], userPositionedItemID: String) {
+        var positionedItemIDs = Set(userPositionedRanks.keys)
+        positionedItemIDs.insert(userPositionedItemID)
+
+        userPositionedRanks = [:]
+        nonPositionedItemIDs = []
+
+        for (index, itemID) in orderedIDs.enumerated() {
+            if positionedItemIDs.contains(itemID) {
+                userPositionedRanks[itemID] = index
+            } else {
+                nonPositionedItemIDs.append(itemID)
+            }
+        }
+    }
+
+    func arrangedIDs(for currentIDs: [String]) -> [String] {
+        guard !currentIDs.isEmpty else {
+            return []
+        }
+
+        let currentIDSet = Set(currentIDs)
+        var arrangedIDs = Array<String?>(repeating: nil, count: currentIDs.count)
+        let positionedItems = userPositionedRanks
+            .filter { currentIDSet.contains($0.key) }
+            .sorted {
+                if $0.value != $1.value {
+                    return $0.value < $1.value
+                }
+
+                return $0.key < $1.key
+            }
+
+        for (itemID, desiredRank) in positionedItems {
+            var targetIndex = min(max(desiredRank, 0), arrangedIDs.count - 1)
+
+            while targetIndex < arrangedIDs.count, arrangedIDs[targetIndex] != nil {
+                targetIndex += 1
+            }
+
+            if targetIndex >= arrangedIDs.count,
+               let fallbackIndex = arrangedIDs.indices.last(where: { arrangedIDs[$0] == nil }) {
+                targetIndex = fallbackIndex
+            }
+
+            arrangedIDs[targetIndex] = itemID
+        }
+
+        var seenNonPositioned = Set<String>()
+        let fallbackNonPositionedIDs = currentIDs.filter {
+            userPositionedRanks[$0] == nil && seenNonPositioned.insert($0).inserted
+        }
+        let orderedNonPositionedIDs = nonPositionedItemIDs.filter {
+            currentIDSet.contains($0) && userPositionedRanks[$0] == nil
+        } + fallbackNonPositionedIDs.filter {
+            !nonPositionedItemIDs.contains($0)
+        }
+
+        var nonPositionedIterator = orderedNonPositionedIDs.makeIterator()
+
+        for index in arrangedIDs.indices where arrangedIDs[index] == nil {
+            arrangedIDs[index] = nonPositionedIterator.next()
+        }
+
+        return arrangedIDs.compactMap { $0 }
+    }
+}
+
+private final class TaskZoneGroupButtonView: NSView, NSDraggingSource {
+    private let appGroup: AppGroup
+    private let hasBadge: Bool
+    private let settings: TaskbarSettings
+    private let activationHandler: () -> Void
+    private let dragConfiguration: TaskButtonDragConfiguration?
+    private let iconView = NSImageView()
+    private let badgeView = NSView()
+    private let badgeLabel = NSTextField(labelWithString: "")
+    private let dropIndicatorView = NSView()
+    private var trackingAreaRef: NSTrackingArea?
+    private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
+    private var dropIndicatorTrailingConstraint: NSLayoutConstraint?
+    private var mouseDownLocation: NSPoint?
+    private var didBeginDraggingSession = false
+    private var isHovered = false {
+        didSet {
+            updateBackgroundColor()
+        }
+    }
+
+    var isActive: Bool {
+        didSet {
+            updateBackgroundColor()
+        }
+    }
+
+    init(
+        appGroup: AppGroup,
+        hasBadge: Bool,
+        isActive: Bool,
+        settings: TaskbarSettings,
+        dragConfiguration: TaskButtonDragConfiguration?,
+        activationHandler: @escaping () -> Void
+    ) {
+        self.appGroup = appGroup
+        self.hasBadge = hasBadge
+        self.isActive = isActive
+        self.settings = settings
+        self.dragConfiguration = dragConfiguration
+        self.activationHandler = activationHandler
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
+
+        configureSubviews()
+        updateAppearance()
+
+        if dragConfiguration != nil {
+            registerForDraggedTypes([TaskButtonView.dragPasteboardType])
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 40, height: 32)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+
+        let trackingAreaRef = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaRef)
+        self.trackingAreaRef = trackingAreaRef
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateDropIndicator(nil)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = convert(event.locationInWindow, from: nil)
+        didBeginDraggingSession = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard settings.dragReorder, let dragConfiguration, let mouseDownLocation else {
+            return
+        }
+
+        let currentLocation = convert(event.locationInWindow, from: nil)
+        let distance = hypot(currentLocation.x - mouseDownLocation.x, currentLocation.y - mouseDownLocation.y)
+        guard distance >= 3,
+              let pasteboardItem = TaskButtonView.makePasteboardItem(for: dragConfiguration.payload) else {
+            return
+        }
+
+        didBeginDraggingSession = true
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(bounds, contents: draggingPreviewImage())
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseDownLocation = nil
+            didBeginDraggingSession = false
+        }
+
+        guard !didBeginDraggingSession else {
+            return
+        }
+
+        activationHandler()
+    }
+
+    private func configureSubviews() {
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+
+        badgeView.translatesAutoresizingMaskIntoConstraints = false
+        badgeView.wantsLayer = true
+        badgeView.layer?.backgroundColor = NSColor.systemRed.cgColor
+        badgeView.layer?.cornerRadius = 8
+
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        badgeLabel.textColor = .white
+        badgeLabel.alignment = .center
+
+        dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        dropIndicatorView.wantsLayer = true
+        dropIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        dropIndicatorView.layer?.cornerRadius = 1
+        dropIndicatorView.isHidden = true
+
+        addSubview(iconView)
+        addSubview(badgeView)
+        badgeView.addSubview(badgeLabel)
+        addSubview(dropIndicatorView)
+
+        let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
+        self.dropIndicatorLeadingConstraint = dropIndicatorLeadingConstraint
+        self.dropIndicatorTrailingConstraint = dropIndicatorTrailingConstraint
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 40),
+            heightAnchor.constraint(equalToConstant: 32),
+
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24),
+            iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            badgeView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            badgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
+            badgeView.heightAnchor.constraint(equalToConstant: 16),
+            badgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 16),
+
+            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 4),
+            badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -4),
+            badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
+
+            dropIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            dropIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            dropIndicatorView.widthAnchor.constraint(equalToConstant: 3)
+        ])
+    }
+
+    private func updateAppearance() {
+        if let icon = appGroup.icon {
+            iconView.image = hasBadge ? icon.withBadgeDot() : icon
+        } else {
+            iconView.image = nil
+        }
+        badgeLabel.stringValue = "\(appGroup.windowCount)"
+        toolTip = "\(appGroup.appName) (\(appGroup.windowCount) windows)"
+        updateBackgroundColor()
+    }
+
+    private func updateBackgroundColor() {
+        if isActive {
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+        } else if isHovered {
+            layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+
+    private func draggingPreviewImage() -> NSImage {
+        let fallback = NSImage(size: bounds.size)
+
+        guard
+            bounds.width > 0,
+            bounds.height > 0,
+            let bitmap = bitmapImageRepForCachingDisplay(in: bounds)
+        else {
+            return fallback
+        }
+
+        cacheDisplay(in: bounds, to: bitmap)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private func draggingEdge(for draggingInfo: NSDraggingInfo) -> DeskBarDropEdge {
+        let location = convert(draggingInfo.draggingLocation, from: nil)
+        return location.x < bounds.midX ? .leading : .trailing
+    }
+
+    private func updateDropIndicator(_ edge: DeskBarDropEdge?) {
+        guard let edge else {
+            dropIndicatorView.isHidden = true
+            dropIndicatorLeadingConstraint?.isActive = false
+            dropIndicatorTrailingConstraint?.isActive = false
+            return
+        }
+
+        dropIndicatorLeadingConstraint?.isActive = edge == .leading
+        dropIndicatorTrailingConstraint?.isActive = edge == .trailing
+        dropIndicatorView.isHidden = false
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        settings.dragReorder && dragConfiguration != nil ? .move : []
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        true
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        mouseDownLocation = nil
+        didBeginDraggingSession = false
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingUpdated(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard
+            settings.dragReorder,
+            let dragConfiguration,
+            let payload = TaskButtonView.decodeDragPayload(from: sender.draggingPasteboard)
+        else {
+            updateDropIndicator(nil)
+            return []
+        }
+
+        let edge = draggingEdge(for: sender)
+        guard dragConfiguration.validateDrop(payload, edge) else {
+            updateDropIndicator(nil)
+            return []
+        }
+
+        updateDropIndicator(edge)
+        return .move
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        updateDropIndicator(nil)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        settings.dragReorder && dragConfiguration != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer {
+            updateDropIndicator(nil)
+        }
+
+        guard
+            settings.dragReorder,
+            let dragConfiguration,
+            let payload = TaskButtonView.decodeDragPayload(from: sender.draggingPasteboard)
+        else {
+            return false
+        }
+
+        let edge = draggingEdge(for: sender)
+        guard dragConfiguration.validateDrop(payload, edge) else {
+            return false
+        }
+
+        return dragConfiguration.acceptDrop(payload, edge)
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        updateDropIndicator(nil)
+    }
 }

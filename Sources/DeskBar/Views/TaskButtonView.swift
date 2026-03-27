@@ -2,8 +2,30 @@ import AppKit
 import ApplicationServices
 import Combine
 
-final class TaskButtonView: NSView {
+enum DeskBarDragZone: String, Codable {
+    case task
+    case launcher
+}
+
+enum DeskBarDropEdge {
+    case leading
+    case trailing
+}
+
+struct DeskBarDragPayload: Codable {
+    let zone: DeskBarDragZone
+    let itemID: String
+}
+
+struct TaskButtonDragConfiguration {
+    let payload: DeskBarDragPayload
+    let validateDrop: (DeskBarDragPayload, DeskBarDropEdge) -> Bool
+    let acceptDrop: (DeskBarDragPayload, DeskBarDropEdge) -> Bool
+}
+
+final class TaskButtonView: NSView, NSDraggingSource {
     private static var activeHoverView: TaskButtonView?
+    static let dragPasteboardType = NSPasteboard.PasteboardType("com.deskbar.task")
 
     private enum WindowState {
         case active
@@ -18,6 +40,7 @@ final class TaskButtonView: NSView {
     private let isAccessibilityAvailable: Bool
     private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
+    private let dragConfiguration: TaskButtonDragConfiguration?
     private var hoverDelay: TimeInterval
     private var maxWidth: CGFloat
     private let accessibilityService: AccessibilityService
@@ -25,6 +48,7 @@ final class TaskButtonView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let thumbnailPopover: ThumbnailPopover
     private let owningApplication: NSRunningApplication?
+    private let dropIndicatorView = NSView()
     private lazy var windowElement: AXUIElement? = {
         Self.resolveWindowElement(
             for: windowInfo,
@@ -36,7 +60,11 @@ final class TaskButtonView: NSView {
     private var hoverWorkItem: DispatchWorkItem?
     private var thumbnailRequestTask: Task<Void, Never>?
     private var maxWidthConstraint: NSLayoutConstraint?
+    private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
+    private var dropIndicatorTrailingConstraint: NSLayoutConstraint?
     private var cancellables = Set<AnyCancellable>()
+    private var mouseDownLocation: NSPoint?
+    private var didBeginDraggingSession = false
     private var isHovered = false {
         didSet {
             updateBackgroundColor()
@@ -75,6 +103,7 @@ final class TaskButtonView: NSView {
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         accessibilityService: AccessibilityService = AccessibilityService(),
+        dragConfiguration: TaskButtonDragConfiguration? = nil,
         activationHandler: @escaping (WindowInfo) -> Void
     ) {
         let owningApplication = NSWorkspace.shared.runningApplications.first {
@@ -90,6 +119,7 @@ final class TaskButtonView: NSView {
         self.hoverDelay = settings.hoverDelay
         self.maxWidth = settings.maxTaskWidth
         self.accessibilityService = accessibilityService
+        self.dragConfiguration = dragConfiguration
         self.activationHandler = activationHandler
         self.thumbnailPopover = ThumbnailPopover(settings: settings)
         self.owningApplication = owningApplication
@@ -102,6 +132,10 @@ final class TaskButtonView: NSView {
         setupSubviews()
         bindSettings()
         updateAppearance()
+
+        if dragConfiguration != nil {
+            registerForDraggedTypes([Self.dragPasteboardType])
+        }
     }
 
     @available(*, unavailable)
@@ -163,6 +197,7 @@ final class TaskButtonView: NSView {
     override func mouseExited(with event: NSEvent) {
         isHovered = false
         cancelHoverPreview()
+        updateDropIndicator(nil)
 
         if TaskButtonView.activeHoverView === self {
             TaskButtonView.activeHoverView = nil
@@ -170,6 +205,39 @@ final class TaskButtonView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = convert(event.locationInWindow, from: nil)
+        didBeginDraggingSession = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard canStartDragSession else {
+            return
+        }
+
+        guard let mouseDownLocation else {
+            return
+        }
+
+        let currentLocation = convert(event.locationInWindow, from: nil)
+        let distance = hypot(currentLocation.x - mouseDownLocation.x, currentLocation.y - mouseDownLocation.y)
+
+        guard distance >= 3 else {
+            return
+        }
+
+        beginDragSession(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseDownLocation = nil
+            didBeginDraggingSession = false
+        }
+
+        guard !didBeginDraggingSession else {
+            return
+        }
+
         activationHandler(windowInfo)
     }
 
@@ -203,11 +271,22 @@ final class TaskButtonView: NSView {
         titleLabel.usesSingleLineMode = true
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        dropIndicatorView.wantsLayer = true
+        dropIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        dropIndicatorView.layer?.cornerRadius = 1
+        dropIndicatorView.isHidden = true
+
         addSubview(iconView)
         addSubview(titleLabel)
+        addSubview(dropIndicatorView)
 
         let maxWidthConstraint = widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
         self.maxWidthConstraint = maxWidthConstraint
+        let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
+        self.dropIndicatorLeadingConstraint = dropIndicatorLeadingConstraint
+        self.dropIndicatorTrailingConstraint = dropIndicatorTrailingConstraint
 
         NSLayoutConstraint.activate([
             maxWidthConstraint,
@@ -219,7 +298,11 @@ final class TaskButtonView: NSView {
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            dropIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            dropIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            dropIndicatorView.widthAnchor.constraint(equalToConstant: 3)
         ])
     }
 
@@ -334,6 +417,62 @@ final class TaskButtonView: NSView {
         thumbnailRequestTask?.cancel()
         thumbnailRequestTask = nil
         thumbnailPopover.close()
+    }
+
+    private var canStartDragSession: Bool {
+        settings.dragReorder && dragConfiguration != nil
+    }
+
+    private func beginDragSession(with event: NSEvent) {
+        guard
+            !didBeginDraggingSession,
+            let dragConfiguration,
+            let pasteboardItem = Self.makePasteboardItem(for: dragConfiguration.payload)
+        else {
+            return
+        }
+
+        didBeginDraggingSession = true
+        cancelHoverPreview()
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(bounds, contents: draggingPreviewImage())
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    private func draggingPreviewImage() -> NSImage {
+        let fallback = NSImage(size: bounds.size)
+
+        guard
+            bounds.width > 0,
+            bounds.height > 0,
+            let bitmap = bitmapImageRepForCachingDisplay(in: bounds)
+        else {
+            return fallback
+        }
+
+        cacheDisplay(in: bounds, to: bitmap)
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    private func draggingEdge(for draggingInfo: NSDraggingInfo) -> DeskBarDropEdge {
+        let location = convert(draggingInfo.draggingLocation, from: nil)
+        return location.x < bounds.midX ? .leading : .trailing
+    }
+
+    private func updateDropIndicator(_ edge: DeskBarDropEdge?) {
+        guard let edge else {
+            dropIndicatorView.isHidden = true
+            dropIndicatorLeadingConstraint?.isActive = false
+            dropIndicatorTrailingConstraint?.isActive = false
+            return
+        }
+
+        dropIndicatorLeadingConstraint?.isActive = edge == .leading
+        dropIndicatorTrailingConstraint?.isActive = edge == .trailing
+        dropIndicatorView.isHidden = false
     }
 
     private func makeContextMenu() -> NSMenu {
@@ -530,5 +669,103 @@ final class TaskButtonView: NSView {
         }
 
         return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func makePasteboardItem(for payload: DeskBarDragPayload) -> NSPasteboardItem? {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(payload),
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        let item = NSPasteboardItem()
+        item.setString(string, forType: dragPasteboardType)
+        return item
+    }
+
+    static func decodeDragPayload(from pasteboard: NSPasteboard) -> DeskBarDragPayload? {
+        guard let string = pasteboard.string(forType: dragPasteboardType),
+              let data = string.data(using: .utf8) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(DeskBarDragPayload.self, from: data)
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        canStartDragSession ? .move : []
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        true
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        mouseDownLocation = nil
+        didBeginDraggingSession = false
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingUpdated(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard
+            settings.dragReorder,
+            let dragConfiguration,
+            let payload = Self.decodeDragPayload(from: sender.draggingPasteboard)
+        else {
+            updateDropIndicator(nil)
+            return []
+        }
+
+        let edge = draggingEdge(for: sender)
+        guard dragConfiguration.validateDrop(payload, edge) else {
+            updateDropIndicator(nil)
+            return []
+        }
+
+        updateDropIndicator(edge)
+        return .move
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        updateDropIndicator(nil)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        settings.dragReorder && dragConfiguration != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer {
+            updateDropIndicator(nil)
+        }
+
+        guard
+            settings.dragReorder,
+            let dragConfiguration,
+            let payload = Self.decodeDragPayload(from: sender.draggingPasteboard)
+        else {
+            return false
+        }
+
+        let edge = draggingEdge(for: sender)
+        guard dragConfiguration.validateDrop(payload, edge) else {
+            return false
+        }
+
+        return dragConfiguration.acceptDrop(payload, edge)
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        updateDropIndicator(nil)
     }
 }
