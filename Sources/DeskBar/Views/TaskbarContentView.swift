@@ -736,7 +736,14 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        application.activate(options: .activateAllWindows)
+        // Raise the specific window via AX, then activate without .activateAllWindows
+        if let windowElement = matchingWindowElement(for: windowInfo, application: application) {
+            _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
+            application.activate()
+        } else {
+            // Fallback: no AX element found, activate all windows
+            application.activate(options: .activateAllWindows)
+        }
     }
 
     private func unminimize(windowInfo: WindowInfo, application: NSRunningApplication) {
