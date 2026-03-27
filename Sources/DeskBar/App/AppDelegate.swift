@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var blacklistManager: BlacklistManager?
     private var pinnedAppManager: PinnedAppManager?
     private var loginItemManager: LoginItemManager?
+    private var badgeMonitor: BadgeMonitor?
     private var settingsWindowController: SettingsWindowController?
     private var contentView: TaskbarContentView?
     private var statusItem: NSStatusItem?
@@ -40,9 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pinnedAppManager: pinnedAppManager
         )
         windowManager = wm
+        let badgeMonitor = BadgeMonitor()
+        self.badgeMonitor = badgeMonitor
 
         let contentView = TaskbarContentView(
             windowManager: wm,
+            badgeMonitor: badgeMonitor,
             permissionsManager: permissions,
             settings: settings,
             blacklistManager: blacklistManager,

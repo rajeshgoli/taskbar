@@ -7,6 +7,7 @@ final class TaskbarContentView: NSView {
     private typealias AXUIElementGetWindowFunc = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
     private let windowManager: WindowManager
+    private let badgeMonitor: BadgeMonitor
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let blacklistManager: BlacklistManager
@@ -24,12 +25,14 @@ final class TaskbarContentView: NSView {
 
     init(
         windowManager: WindowManager,
+        badgeMonitor: BadgeMonitor,
         permissionsManager: PermissionsManager,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         pinnedAppManager: PinnedAppManager
     ) {
         self.windowManager = windowManager
+        self.badgeMonitor = badgeMonitor
         self.permissionsManager = permissionsManager
         self.settings = settings
         self.blacklistManager = blacklistManager
@@ -167,6 +170,13 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        badgeMonitor.$appBadges
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
         settings.$taskbarHeight
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -207,6 +217,7 @@ final class TaskbarContentView: NSView {
             let buttonView = TaskButtonView(
                 windowInfo: window,
                 isActive: window.pid == frontmostPID,
+                hasBadge: window.bundleIdentifier.flatMap { badgeMonitor.appBadges[$0] } ?? false,
                 isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
                 settings: settings,
                 blacklistManager: blacklistManager
