@@ -32,19 +32,11 @@ final class ThumbnailPopover: NSPopover {
         thumbnailViewController.show(thumbnail: thumbnail)
         show(relativeTo: view.bounds, of: view, preferredEdge: popoverEdge)
     }
-
-    func showSyncing(relativeTo view: NSView) {
-        thumbnailViewController.showSyncing()
-        show(relativeTo: view.bounds, of: view, preferredEdge: popoverEdge)
-    }
 }
 
 private final class ThumbnailPopoverViewController: NSViewController {
     private var thumbnailSize: CGFloat
     private let imageView = NSImageView()
-    private let syncingLabel = NSTextField(labelWithString: "(syncing...)")
-    private var currentThumbnail: NSImage?
-    private var isShowingSyncing = true
 
     init(thumbnailSize: CGFloat) {
         self.thumbnailSize = thumbnailSize
@@ -63,55 +55,30 @@ private final class ThumbnailPopoverViewController: NSViewController {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
 
-        syncingLabel.translatesAutoresizingMaskIntoConstraints = false
-        syncingLabel.alignment = .center
-        syncingLabel.textColor = .secondaryLabelColor
-
         containerView.addSubview(imageView)
-        containerView.addSubview(syncingLabel)
 
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-
-            syncingLabel.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            syncingLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
+            imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
 
         view = containerView
         preferredContentSize = squareSize
-        showSyncing()
     }
 
     func show(thumbnail: NSImage) {
-        currentThumbnail = thumbnail
-        isShowingSyncing = false
         imageView.image = thumbnail
-        imageView.isHidden = false
-        syncingLabel.isHidden = true
         preferredContentSize = resolvedSize(for: thumbnail)
-        view.setFrameSize(preferredContentSize)
-    }
-
-    func showSyncing() {
-        currentThumbnail = nil
-        isShowingSyncing = true
-        imageView.image = nil
-        imageView.isHidden = true
-        syncingLabel.isHidden = false
-        preferredContentSize = squareSize
         view.setFrameSize(preferredContentSize)
     }
 
     func updateThumbnailSize(_ thumbnailSize: CGFloat) {
         self.thumbnailSize = thumbnailSize
 
-        if isShowingSyncing {
-            preferredContentSize = squareSize
-        } else if let currentThumbnail {
-            preferredContentSize = resolvedSize(for: currentThumbnail)
+        if let image = imageView.image {
+            preferredContentSize = resolvedSize(for: image)
         } else {
             preferredContentSize = squareSize
         }
