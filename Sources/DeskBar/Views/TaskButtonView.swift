@@ -14,6 +14,7 @@ final class TaskButtonView: NSView {
 
     private let settings: TaskbarSettings
     private let windowInfo: WindowInfo
+    private let hasBadge: Bool
     private let isAccessibilityAvailable: Bool
     private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
@@ -69,6 +70,7 @@ final class TaskButtonView: NSView {
     init(
         windowInfo: WindowInfo,
         isActive: Bool,
+        hasBadge: Bool,
         isAccessibilityAvailable: Bool,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
@@ -81,6 +83,7 @@ final class TaskButtonView: NSView {
 
         self.settings = settings
         self.windowInfo = windowInfo
+        self.hasBadge = hasBadge
         self.isActive = isActive
         self.isAccessibilityAvailable = isAccessibilityAvailable
         self.blacklistManager = blacklistManager
@@ -436,12 +439,24 @@ final class TaskButtonView: NSView {
     }
 
     private func displayIcon() -> NSImage? {
+        let baseIcon: NSImage?
+
         switch windowState {
         case .minimized:
-            return desaturatedIcon()
+            baseIcon = desaturatedIcon()
         case .active, .normal, .hidden:
-            return windowInfo.icon
+            baseIcon = windowInfo.icon
         }
+
+        guard let baseIcon else {
+            return nil
+        }
+
+        if hasBadge {
+            return baseIcon.withBadgeDot()
+        }
+
+        return baseIcon
     }
 
     private func iconAlpha() -> CGFloat {

@@ -37,4 +37,21 @@ extension NSImage {
         newImage.unlockFocus()
         return newImage
     }
+
+    /// Draw a notification dot overlay (top-right corner)
+    func withBadgeDot(dotSize: CGFloat = 6, color: NSColor = .systemRed) -> NSImage {
+        let newImage = NSImage(size: self.size)
+        newImage.lockFocus()
+        self.draw(in: NSRect(origin: .zero, size: self.size))
+        let dotRect = NSRect(
+            x: self.size.width - dotSize - 1,
+            y: self.size.height - dotSize - 1,
+            width: dotSize,
+            height: dotSize
+        )
+        color.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+        newImage.unlockFocus()
+        return newImage
+    }
 }
