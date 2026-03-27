@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 final class LauncherZoneView: NSStackView {
+    private let settings: TaskbarSettings
     private let pinnedAppManager: PinnedAppManager
     private let windowManager: WindowManager
     private let buttonsStackView = NSStackView()
@@ -9,9 +10,11 @@ final class LauncherZoneView: NSStackView {
     private var cancellables = Set<AnyCancellable>()
 
     init(
+        settings: TaskbarSettings,
         pinnedAppManager: PinnedAppManager,
         windowManager: WindowManager
     ) {
+        self.settings = settings
         self.pinnedAppManager = pinnedAppManager
         self.windowManager = windowManager
         super.init(frame: .zero)
@@ -63,6 +66,13 @@ final class LauncherZoneView: NSStackView {
     }
 
     private func bindState() {
+        settings.$showLaunchpadButton
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildButtons()
+            }
+            .store(in: &cancellables)
+
         pinnedAppManager.$pinnedApps
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -100,6 +110,10 @@ final class LauncherZoneView: NSStackView {
         buttonsStackView.arrangedSubviews.forEach { view in
             buttonsStackView.removeArrangedSubview(view)
             view.removeFromSuperview()
+        }
+
+        if settings.showLaunchpadButton {
+            buttonsStackView.addArrangedSubview(LaunchpadButtonView())
         }
 
         let runningApplicationsByBundleIdentifier: [String: NSRunningApplication] =

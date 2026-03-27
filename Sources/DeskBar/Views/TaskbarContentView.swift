@@ -34,6 +34,7 @@ final class TaskbarContentView: NSView {
         self.settings = settings
         self.blacklistManager = blacklistManager
         launcherZoneView = LauncherZoneView(
+            settings: settings,
             pinnedAppManager: pinnedAppManager,
             windowManager: windowManager
         )
