@@ -6,7 +6,7 @@ final class BlacklistManager: ObservableObject {
 
     @Published var blacklistedBundleIDs: Set<String>
 
-    private let defaults = UserDefaults(suiteName: "com.deskbar.app")!
+    private let defaults = UserDefaults.standard
     private let defaultsKey = "blacklistedApps"
 
     init() {

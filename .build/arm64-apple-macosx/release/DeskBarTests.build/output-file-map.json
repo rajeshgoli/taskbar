@@ -1,0 +1,57 @@
+{
+  "": {
+    "dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarTests.d",
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarTests.o",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/master.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/BlacklistManagerTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/BlacklistManagerTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/BlacklistManagerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/BlacklistManagerTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/DebouncerTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DebouncerTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DebouncerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DebouncerTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/DeskBarPlaceholderTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarPlaceholderTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarPlaceholderTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarPlaceholderTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/DeskBarTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/DeskBarTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/LoginItemManagerTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/LoginItemManagerTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/LoginItemManagerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/LoginItemManagerTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/PermissionsManagerTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PermissionsManagerTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PermissionsManagerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PermissionsManagerTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/PinnedAppManagerTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PinnedAppManagerTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PinnedAppManagerTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/PinnedAppManagerTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/ScreenGeometryTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/ScreenGeometryTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/ScreenGeometryTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/ScreenGeometryTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/TaskbarSettingsTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/TaskbarSettingsTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/TaskbarSettingsTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/TaskbarSettingsTests.swiftdeps"
+  },
+  "/Users/rajesh/Desktop/automation/taskbar/Tests/DeskBarTests/WindowManagerRoutingTests.swift": {
+    "object": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/WindowManagerRoutingTests.swift.o",
+    "swiftmodule": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/WindowManagerRoutingTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/rajesh/Desktop/automation/taskbar/.build/arm64-apple-macosx/release/DeskBarTests.build/WindowManagerRoutingTests.swiftdeps"
+  }
+}

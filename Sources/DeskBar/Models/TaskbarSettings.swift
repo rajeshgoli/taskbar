@@ -66,7 +66,7 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(showOnAllMonitors, forKey: "showOnAllMonitors") }
     }
 
-    init(defaults: UserDefaults = UserDefaults(suiteName: "com.deskbar.app")!) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         showLaunchpadButton = defaults.object(forKey: "showLaunchpadButton") as? Bool ?? true
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? 40

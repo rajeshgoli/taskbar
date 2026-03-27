@@ -30,7 +30,7 @@ final class PinnedAppManager: ObservableObject {
     private let decoder = JSONDecoder()
 
     init(
-        defaults: UserDefaults = UserDefaults(suiteName: "com.deskbar.app")!,
+        defaults: UserDefaults = .standard,
         defaultsKey: String = "pinnedApps"
     ) {
         self.defaults = defaults
