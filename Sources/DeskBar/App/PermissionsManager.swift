@@ -5,6 +5,15 @@ import Combine
 final class PermissionsManager: ObservableObject {
     @Published private(set) var isAccessibilityGranted: Bool
 
+    static let accessibilitySettingsURLs: [URL] = [
+        URL(
+            string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
+        )!,
+        URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        )!
+    ]
+
     private let pollQueue = DispatchQueue(label: "com.deskbar.permissions")
     private var pollTimer: DispatchSourceTimer?
 
@@ -17,14 +26,24 @@ final class PermissionsManager: ObservableObject {
         pollTimer?.cancel()
     }
 
-    func openAccessibilitySettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        ) else {
+    func requestAccessibilityPermission() {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [promptKey: true] as CFDictionary
+        let isGranted = AXIsProcessTrustedWithOptions(options)
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.isAccessibilityGranted = isGranted
+        }
+
+        guard !isGranted else {
             return
         }
 
-        NSWorkspace.shared.open(url)
+        openAccessibilitySettingsFallback()
     }
 
     private func startPolling() {
@@ -53,5 +72,11 @@ final class PermissionsManager: ObservableObject {
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [promptKey: false] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func openAccessibilitySettingsFallback() {
+        for url in Self.accessibilitySettingsURLs where NSWorkspace.shared.open(url) {
+            return
+        }
     }
 }

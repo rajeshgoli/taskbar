@@ -108,7 +108,8 @@ final class TaskbarContentView: NSView {
             rootStackView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        bannerButton.title = "Accessibility permission required — Click to grant"
+        bannerButton.title = "Accessibility permission required — Click to grant (you may need to add DeskBar manually in System Settings > Privacy & Security > Accessibility)"
+        bannerButton.toolTip = bannerButton.title
         bannerButton.isBordered = false
         bannerButton.bezelStyle = .regularSquare
         bannerButton.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -803,7 +804,7 @@ final class TaskbarContentView: NSView {
 
     @objc
     private func openAccessibilitySettings() {
-        permissionsManager.openAccessibilitySettings()
+        permissionsManager.requestAccessibilityPermission()
     }
 }
 
