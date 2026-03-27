@@ -22,6 +22,10 @@ final class TaskbarContentView: NSView {
     private let taskZoneStackView = NSStackView()
 
     private var cancellables = Set<AnyCancellable>()
+    private var localClickMonitor: Any?
+    private var globalClickMonitor: Any?
+    private var expandedGroupID: String?
+    private weak var expandedGroupView: NSView?
 
     init(
         windowManager: WindowManager,
@@ -56,6 +60,7 @@ final class TaskbarContentView: NSView {
 
         configureLayout()
         bindState()
+        installCollapseMonitors()
         updateTaskbarLayout()
         rebuildTaskZone()
     }
@@ -63,6 +68,16 @@ final class TaskbarContentView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let localClickMonitor {
+            NSEvent.removeMonitor(localClickMonitor)
+        }
+
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+        }
     }
 
     func handleAccessibilityPermissionChange() {
@@ -177,6 +192,21 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        settings.$groupByApp
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnabled in
+                guard let self else {
+                    return
+                }
+
+                if !isEnabled {
+                    self.expandedGroupID = nil
+                }
+
+                self.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
         settings.$taskbarHeight
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -205,6 +235,7 @@ final class TaskbarContentView: NSView {
 
     private func rebuildTaskZone() {
         bannerButton.isHidden = permissionsManager.isAccessibilityGranted
+        expandedGroupView = nil
 
         taskZoneStackView.arrangedSubviews.forEach { view in
             taskZoneStackView.removeArrangedSubview(view)
@@ -213,19 +244,28 @@ final class TaskbarContentView: NSView {
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
-        for window in windowManager.visibleWindows {
-            let buttonView = TaskButtonView(
-                windowInfo: window,
-                isActive: window.pid == frontmostPID,
-                hasBadge: window.bundleIdentifier.flatMap { badgeMonitor.appBadges[$0] } ?? false,
-                isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
-                settings: settings,
-                blacklistManager: blacklistManager
-            ) { [weak self] windowInfo in
-                self?.activate(windowInfo: windowInfo)
+        if settings.groupByApp {
+            for item in groupedTaskItems(from: windowManager.visibleWindows) {
+                switch item {
+                case .window(let window):
+                    addTaskButton(for: window, frontmostPID: frontmostPID)
+                case .group(let group):
+                    let groupView = makeGroupView(for: group, frontmostPID: frontmostPID)
+                    taskZoneStackView.addArrangedSubview(groupView)
+                    groupView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+
+                    if group.isExpanded {
+                        expandedGroupView = groupView
+                    }
+                }
             }
-            taskZoneStackView.addArrangedSubview(buttonView)
-            buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            return
+        }
+
+        expandedGroupID = nil
+
+        for window in windowManager.visibleWindows {
+            addTaskButton(for: window, frontmostPID: frontmostPID)
         }
     }
 
@@ -238,6 +278,170 @@ final class TaskbarContentView: NSView {
             right: 10
         )
         layoutSubtreeIfNeeded()
+    }
+
+    private func addTaskButton(for window: WindowInfo, frontmostPID: pid_t?) {
+        let buttonView = TaskButtonView(
+            windowInfo: window,
+            isActive: window.pid == frontmostPID,
+            hasBadge: hasBadge(for: window.bundleIdentifier),
+            isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+            settings: settings,
+            blacklistManager: blacklistManager
+        ) { [weak self] windowInfo in
+            self?.activate(windowInfo: windowInfo)
+        }
+        taskZoneStackView.addArrangedSubview(buttonView)
+        buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+    }
+
+    private func makeGroupView(for group: AppGroup, frontmostPID: pid_t?) -> NSView {
+        let groupStackView = NSStackView()
+        groupStackView.translatesAutoresizingMaskIntoConstraints = false
+        groupStackView.orientation = .horizontal
+        groupStackView.alignment = .centerY
+        groupStackView.spacing = taskZoneStackView.spacing
+        groupStackView.edgeInsets = NSEdgeInsetsZero
+        groupStackView.distribution = .fill
+
+        let headerView = GroupHeaderButton(
+            appGroup: group,
+            hasBadge: hasBadge(for: group.id),
+            isActive: group.windows.contains { $0.pid == frontmostPID }
+        ) { [weak self] in
+            self?.toggleGroupExpansion(for: group.id)
+        }
+        groupStackView.addArrangedSubview(headerView)
+        headerView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+
+        if group.isExpanded {
+            for window in group.windows {
+                let buttonView = TaskButtonView(
+                    windowInfo: window,
+                    isActive: window.pid == frontmostPID,
+                    hasBadge: hasBadge(for: window.bundleIdentifier),
+                    isAccessibilityAvailable: permissionsManager.isAccessibilityGranted,
+                    settings: settings,
+                    blacklistManager: blacklistManager
+                ) { [weak self] windowInfo in
+                    self?.activate(windowInfo: windowInfo)
+                }
+                groupStackView.addArrangedSubview(buttonView)
+                buttonView.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            }
+        }
+
+        return groupStackView
+    }
+
+    private func groupedTaskItems(from windows: [WindowInfo]) -> [TaskZoneItem] {
+        var groups: [AppGroup] = []
+        var groupIndexes: [String: Int] = [:]
+
+        for window in windows {
+            let groupID = resolvedGroupID(for: window)
+
+            if let index = groupIndexes[groupID] {
+                groups[index].windows.append(window)
+            } else {
+                groupIndexes[groupID] = groups.count
+                groups.append(
+                    AppGroup(
+                        id: groupID,
+                        appName: window.appName,
+                        icon: window.icon,
+                        windows: [window]
+                    )
+                )
+            }
+        }
+
+        let multiWindowGroupIDs = Set(
+            groups
+                .filter { $0.windowCount > 1 }
+                .map(\.id)
+        )
+
+        if let expandedGroupID, !multiWindowGroupIDs.contains(expandedGroupID) {
+            self.expandedGroupID = nil
+        }
+
+        return groups.map { group in
+            if group.windowCount == 1, let window = group.windows.first {
+                return .window(window)
+            }
+
+            var expandedGroup = group
+            expandedGroup.isExpanded = expandedGroup.id == expandedGroupID
+            return .group(expandedGroup)
+        }
+    }
+
+    private func resolvedGroupID(for window: WindowInfo) -> String {
+        if let bundleIdentifier = window.bundleIdentifier, !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        return "pid-\(window.pid)-\(window.appName)"
+    }
+
+    private func hasBadge(for bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else {
+            return false
+        }
+
+        return badgeMonitor.appBadges[bundleIdentifier] ?? false
+    }
+
+    private func toggleGroupExpansion(for groupID: String) {
+        expandedGroupID = expandedGroupID == groupID ? nil : groupID
+        rebuildTaskZone()
+    }
+
+    private func collapseExpandedGroup() {
+        guard expandedGroupID != nil else {
+            return
+        }
+
+        expandedGroupID = nil
+        rebuildTaskZone()
+    }
+
+    private func installCollapseMonitors() {
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
+            self?.handleLocalClick(event)
+            return event
+        }
+
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.collapseExpandedGroup()
+            }
+        }
+    }
+
+    private func handleLocalClick(_ event: NSEvent) {
+        guard expandedGroupID != nil else {
+            return
+        }
+
+        guard event.window === window else {
+            collapseExpandedGroup()
+            return
+        }
+
+        let pointInView = convert(event.locationInWindow, from: nil)
+        guard let expandedGroupView else {
+            collapseExpandedGroup()
+            return
+        }
+
+        let expandedFrame = expandedGroupView.convert(expandedGroupView.bounds, to: self)
+        if !expandedFrame.contains(pointInView) {
+            collapseExpandedGroup()
+        }
     }
 
     private func activate(windowInfo: WindowInfo) {
@@ -357,4 +561,9 @@ final class TaskbarContentView: NSView {
     private func openAccessibilitySettings() {
         permissionsManager.openAccessibilitySettings()
     }
+}
+
+private enum TaskZoneItem {
+    case window(WindowInfo)
+    case group(AppGroup)
 }
