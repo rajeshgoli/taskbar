@@ -67,8 +67,13 @@ final class LauncherButtonView: NSView {
             return
         }
 
-        // Always launch a new instance (like Dock behavior)
-        launchApplication()
+        if let runningApp = runningApplication, runningApp.isTerminated == false {
+            // App is running — activate and raise its windows
+            activateMostRecentWindow()
+        } else {
+            // App is not running — launch it
+            launchApplication()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -95,19 +100,18 @@ final class LauncherButtonView: NSView {
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 36),
-            heightAnchor.constraint(equalToConstant: 42),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.topAnchor.constraint(equalTo: topAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 32),
-            iconView.heightAnchor.constraint(equalToConstant: 32),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -3),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
 
-            underlineView.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
+            underlineView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
             underlineView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            underlineView.widthAnchor.constraint(equalToConstant: 20),
+            underlineView.widthAnchor.constraint(equalToConstant: 18),
             underlineView.heightAnchor.constraint(equalToConstant: 3),
 
-            dotView.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
+            dotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
             dotView.centerXAnchor.constraint(equalTo: centerXAnchor),
             dotView.widthAnchor.constraint(equalToConstant: 4),
             dotView.heightAnchor.constraint(equalToConstant: 4)
