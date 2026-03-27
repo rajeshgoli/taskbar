@@ -4,16 +4,19 @@ import Combine
 final class RunningAppTrayView: NSStackView {
     private let windowManager: WindowManager
     private let pinnedAppManager: PinnedAppManager
+    private let displayID: CGDirectDisplayID
     private let dividerView = NSView()
     private let iconsStackView = NSStackView()
     private var cancellables = Set<AnyCancellable>()
 
     init(
         windowManager: WindowManager,
-        pinnedAppManager: PinnedAppManager
+        pinnedAppManager: PinnedAppManager,
+        displayID: CGDirectDisplayID
     ) {
         self.windowManager = windowManager
         self.pinnedAppManager = pinnedAppManager
+        self.displayID = displayID
         super.init(frame: .zero)
 
         orientation = .horizontal
@@ -59,12 +62,23 @@ final class RunningAppTrayView: NSStackView {
     }
 
     private func bindState() {
-        windowManager.$trayApps
+        windowManager.$windows
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.rebuildIcons()
             }
             .store(in: &cancellables)
+
+        pinnedAppManager.$pinnedApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+    }
+
+    func refresh() {
+        rebuildIcons()
     }
 
     private func rebuildIcons() {
@@ -73,7 +87,7 @@ final class RunningAppTrayView: NSStackView {
             view.removeFromSuperview()
         }
 
-        for application in windowManager.trayApps {
+        for application in localTrayApps {
             iconsStackView.addArrangedSubview(
                 TrayIconView(
                     application: application,
@@ -81,5 +95,13 @@ final class RunningAppTrayView: NSStackView {
                 )
             )
         }
+    }
+
+    private var localTrayApps: [NSRunningApplication] {
+        guard let screen = ScreenGeometry.screen(for: displayID) else {
+            return []
+        }
+
+        return windowManager.trayApplications(on: screen)
     }
 }

@@ -5,6 +5,7 @@ final class LauncherZoneView: NSStackView {
     private let settings: TaskbarSettings
     private let pinnedAppManager: PinnedAppManager
     private let windowManager: WindowManager
+    private let displayID: CGDirectDisplayID
     private let buttonsStackView = NSStackView()
     private let dividerView = NSView()
     private var cancellables = Set<AnyCancellable>()
@@ -12,11 +13,13 @@ final class LauncherZoneView: NSStackView {
     init(
         settings: TaskbarSettings,
         pinnedAppManager: PinnedAppManager,
-        windowManager: WindowManager
+        windowManager: WindowManager,
+        displayID: CGDirectDisplayID
     ) {
         self.settings = settings
         self.pinnedAppManager = pinnedAppManager
         self.windowManager = windowManager
+        self.displayID = displayID
         super.init(frame: .zero)
 
         orientation = .horizontal
@@ -126,7 +129,7 @@ final class LauncherZoneView: NSStackView {
             }
 
         for pinnedApp in pinnedAppManager.pinnedApps {
-            let visibleLocalWindows = windowManager.windows.filter {
+            let visibleLocalWindows = localWindows.filter {
                 $0.bundleIdentifier == pinnedApp.bundleIdentifier &&
                     !$0.isMinimized &&
                     !$0.isHidden
@@ -142,5 +145,13 @@ final class LauncherZoneView: NSStackView {
 
             buttonsStackView.addArrangedSubview(buttonView)
         }
+    }
+
+    private var localWindows: [WindowInfo] {
+        guard let screen = ScreenGeometry.screen(for: displayID) else {
+            return []
+        }
+
+        return windowManager.windows(on: screen)
     }
 }
