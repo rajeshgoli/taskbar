@@ -38,6 +38,8 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private var windowInfo: WindowInfo
     private var hasBadge: Bool
     private var isAccessibilityAvailable: Bool
+    private var runtimeState: AppRuntimeState
+    private var showsActivityOverlay: Bool
     private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
     private let dragConfiguration: TaskButtonDragConfiguration?
@@ -46,6 +48,11 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
+    private let statusIndicatorView = NSView()
+    private let activityBadgeView = NSVisualEffectView()
+    private let activityLabel = NSTextField(labelWithString: "")
+    private let progressTrackView = NSView()
+    private let progressFillView = NSView()
     private let thumbnailPopover: ThumbnailPopover
     private let owningApplication: NSRunningApplication?
     private let dropIndicatorView = NSView()
@@ -60,6 +67,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private var hoverWorkItem: DispatchWorkItem?
     private var thumbnailRequestTask: Task<Void, Never>?
     private var maxWidthConstraint: NSLayoutConstraint?
+    private var progressWidthConstraint: NSLayoutConstraint?
     private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
     private var dropIndicatorTrailingConstraint: NSLayoutConstraint?
     private var cancellables = Set<AnyCancellable>()
@@ -100,6 +108,8 @@ final class TaskButtonView: NSView, NSDraggingSource {
         isActive: Bool,
         hasBadge: Bool,
         isAccessibilityAvailable: Bool,
+        runtimeState: AppRuntimeState,
+        showsActivityOverlay: Bool,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         accessibilityService: AccessibilityService = AccessibilityService(),
@@ -115,6 +125,8 @@ final class TaskButtonView: NSView, NSDraggingSource {
         self.hasBadge = hasBadge
         self.isActive = isActive
         self.isAccessibilityAvailable = isAccessibilityAvailable
+        self.runtimeState = runtimeState
+        self.showsActivityOverlay = showsActivityOverlay
         self.blacklistManager = blacklistManager
         self.hoverDelay = settings.hoverDelay
         self.maxWidth = settings.maxTaskWidth
@@ -153,6 +165,11 @@ final class TaskButtonView: NSView, NSDraggingSource {
 
     override var intrinsicContentSize: NSSize {
         return NSSize(width: maxWidth, height: 32)
+    }
+
+    override func layout() {
+        super.layout()
+        updateProgressWidth()
     }
 
     override func updateTrackingAreas() {
@@ -268,18 +285,54 @@ final class TaskButtonView: NSView, NSDraggingSource {
         titleLabel.usesSingleLineMode = true
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        statusIndicatorView.translatesAutoresizingMaskIntoConstraints = false
+        statusIndicatorView.wantsLayer = true
+        statusIndicatorView.layer?.cornerRadius = 1.5
+        statusIndicatorView.isHidden = true
+
+        activityBadgeView.translatesAutoresizingMaskIntoConstraints = false
+        activityBadgeView.material = .toolTip
+        activityBadgeView.blendingMode = .withinWindow
+        activityBadgeView.state = .active
+        activityBadgeView.wantsLayer = true
+        activityBadgeView.layer?.cornerRadius = 5
+        activityBadgeView.layer?.masksToBounds = true
+        activityBadgeView.isHidden = true
+
+        activityLabel.translatesAutoresizingMaskIntoConstraints = false
+        activityLabel.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
+        activityLabel.textColor = .secondaryLabelColor
+
+        progressTrackView.translatesAutoresizingMaskIntoConstraints = false
+        progressTrackView.wantsLayer = true
+        progressTrackView.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        progressTrackView.layer?.cornerRadius = 1
+        progressTrackView.isHidden = true
+
+        progressFillView.translatesAutoresizingMaskIntoConstraints = false
+        progressFillView.wantsLayer = true
+        progressFillView.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        progressFillView.layer?.cornerRadius = 1
+
         dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
         dropIndicatorView.wantsLayer = true
         dropIndicatorView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         dropIndicatorView.layer?.cornerRadius = 1
         dropIndicatorView.isHidden = true
 
+        addSubview(statusIndicatorView)
         addSubview(iconView)
         addSubview(titleLabel)
+        addSubview(activityBadgeView)
+        activityBadgeView.addSubview(activityLabel)
+        addSubview(progressTrackView)
+        progressTrackView.addSubview(progressFillView)
         addSubview(dropIndicatorView)
 
         let maxWidthConstraint = widthAnchor.constraint(equalToConstant: maxWidth)
         self.maxWidthConstraint = maxWidthConstraint
+        let progressWidthConstraint = progressFillView.widthAnchor.constraint(equalToConstant: 0)
+        self.progressWidthConstraint = progressWidthConstraint
         let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
         let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
         self.dropIndicatorLeadingConstraint = dropIndicatorLeadingConstraint
@@ -287,6 +340,11 @@ final class TaskButtonView: NSView, NSDraggingSource {
 
         NSLayoutConstraint.activate([
             maxWidthConstraint,
+
+            statusIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            statusIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            statusIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            statusIndicatorView.widthAnchor.constraint(equalToConstant: 3),
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -296,6 +354,24 @@ final class TaskButtonView: NSView, NSDraggingSource {
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            activityBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            activityBadgeView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+
+            activityLabel.leadingAnchor.constraint(equalTo: activityBadgeView.leadingAnchor, constant: 5),
+            activityLabel.trailingAnchor.constraint(equalTo: activityBadgeView.trailingAnchor, constant: -5),
+            activityLabel.topAnchor.constraint(equalTo: activityBadgeView.topAnchor, constant: 2),
+            activityLabel.bottomAnchor.constraint(equalTo: activityBadgeView.bottomAnchor, constant: -2),
+
+            progressTrackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            progressTrackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            progressTrackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            progressTrackView.heightAnchor.constraint(equalToConstant: 2),
+
+            progressFillView.leadingAnchor.constraint(equalTo: progressTrackView.leadingAnchor),
+            progressFillView.topAnchor.constraint(equalTo: progressTrackView.topAnchor),
+            progressFillView.bottomAnchor.constraint(equalTo: progressTrackView.bottomAnchor),
+            progressWidthConstraint,
 
             dropIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             dropIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -355,7 +431,21 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private func resolvedToolTip() -> String {
-        displayTitle()
+        var lines = [displayTitle()]
+
+        if runtimeState.isLaunching {
+            lines.append("Launching")
+        }
+
+        if let progressFraction = runtimeState.normalizedProgressFraction {
+            lines.append("Progress: \(Int((progressFraction * 100).rounded()))%")
+        }
+
+        if let activitySummary = runtimeState.activitySummary {
+            lines.append(activitySummary)
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     private var shouldShowThumbnailPopover: Bool {
@@ -540,6 +630,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
         toolTip = resolvedToolTip()
         iconView.image = displayIcon()
         iconView.alphaValue = iconAlpha()
+        updateStatusIndicator()
+        updateActivityBadge()
+        updateProgressIndicator()
         updateBackgroundColor()
         invalidateIntrinsicContentSize()
     }
@@ -548,7 +641,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
         windowInfo: WindowInfo,
         isActive: Bool,
         hasBadge: Bool,
-        isAccessibilityAvailable: Bool
+        isAccessibilityAvailable: Bool,
+        runtimeState: AppRuntimeState,
+        showsActivityOverlay: Bool
     ) {
         let previousThumbnailEligibility = shouldShowThumbnailPopover
         let previousWindowID = self.windowInfo.cgWindowID
@@ -557,6 +652,8 @@ final class TaskButtonView: NSView, NSDraggingSource {
         self.isActive = isActive
         self.hasBadge = hasBadge
         self.isAccessibilityAvailable = isAccessibilityAvailable
+        self.runtimeState = runtimeState
+        self.showsActivityOverlay = showsActivityOverlay
 
         if previousWindowID != windowInfo.cgWindowID {
             windowElement = Self.resolveWindowElement(
@@ -681,11 +778,71 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private func updateBackgroundColor() {
         if isActive {
             layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+        } else if runtimeState.needsAttention {
+            layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.14).cgColor
         } else if isHovered {
             layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         } else {
             layer?.backgroundColor = NSColor.clear.cgColor
         }
+    }
+
+    private func updateStatusIndicator() {
+        let isVisible = runtimeState.needsAttention || runtimeState.isLaunching
+        statusIndicatorView.isHidden = !isVisible
+
+        guard isVisible else {
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+            return
+        }
+
+        let color = runtimeState.needsAttention ? NSColor.systemOrange : NSColor.systemBlue
+        statusIndicatorView.layer?.backgroundColor = color.cgColor
+
+        if runtimeState.needsAttention {
+            if statusIndicatorView.layer?.animation(forKey: "deskbar.attention") == nil {
+                let animation = CABasicAnimation(keyPath: "opacity")
+                animation.fromValue = 1
+                animation.toValue = 0.25
+                animation.duration = 0.55
+                animation.autoreverses = true
+                animation.repeatCount = .infinity
+                statusIndicatorView.layer?.add(animation, forKey: "deskbar.attention")
+            }
+        } else {
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+        }
+    }
+
+    private func updateActivityBadge() {
+        guard showsActivityOverlay, let activitySummary = runtimeState.activitySummary else {
+            activityBadgeView.isHidden = true
+            return
+        }
+
+        activityLabel.stringValue = activitySummary
+        activityBadgeView.isHidden = false
+    }
+
+    private func updateProgressIndicator() {
+        guard let progressFraction = runtimeState.normalizedProgressFraction else {
+            progressTrackView.isHidden = true
+            return
+        }
+
+        progressTrackView.isHidden = false
+        progressFillView.layer?.backgroundColor = progressFraction >= 1 ? NSColor.systemBlue.cgColor : NSColor.systemGreen.cgColor
+        updateProgressWidth()
+    }
+
+    private func updateProgressWidth() {
+        guard let progressFraction = runtimeState.normalizedProgressFraction else {
+            progressWidthConstraint?.constant = 0
+            return
+        }
+
+        let trackWidth = max(progressTrackView.bounds.width, bounds.width - 12)
+        progressWidthConstraint?.constant = max(2, trackWidth * progressFraction)
     }
 
     private func desaturatedIcon() -> NSImage? {

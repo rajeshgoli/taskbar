@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pinnedAppManager: PinnedAppManager?
     private var loginItemManager: LoginItemManager?
     private var badgeMonitor: BadgeMonitor?
+    private var appStateMonitor: AppStateMonitor?
     private var thumbnailService: ThumbnailService?
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
@@ -48,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let badgeMonitor = BadgeMonitor()
         self.badgeMonitor = badgeMonitor
+
+        let appStateMonitor = AppStateMonitor()
+        self.appStateMonitor = appStateMonitor
 
         let thumbnailService = ThumbnailService()
         self.thumbnailService = thumbnailService
@@ -244,6 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let windowManager,
             let permissionsManager,
             let badgeMonitor,
+            let appStateMonitor,
             let blacklistManager,
             let pinnedAppManager
         else {
@@ -266,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let contentView = TaskbarContentView(
                 windowManager: windowManager,
                 badgeMonitor: badgeMonitor,
+                appStateMonitor: appStateMonitor,
                 permissionsManager: permissionsManager,
                 settings: settings,
                 blacklistManager: blacklistManager,

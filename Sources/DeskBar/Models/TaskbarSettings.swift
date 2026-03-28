@@ -7,6 +7,12 @@ enum DockMode: String, CaseIterable {
     case hidden
 }
 
+enum WindowGroupingMode: String, CaseIterable {
+    case never
+    case automatic
+    case always
+}
+
 class TaskbarSettings: ObservableObject {
     private let defaults: UserDefaults
 
@@ -30,8 +36,8 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(showTitles, forKey: "showTitles") }
     }
 
-    @Published var groupByApp: Bool {
-        didSet { defaults.set(groupByApp, forKey: "groupByApp") }
+    @Published var groupingMode: WindowGroupingMode {
+        didSet { defaults.set(groupingMode.rawValue, forKey: "groupingMode") }
     }
 
     @Published var dragReorder: Bool {
@@ -58,6 +64,18 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(showOverFullScreenApps, forKey: "showOverFullScreenApps") }
     }
 
+    @Published var flashAttentionIndicators: Bool {
+        didSet { defaults.set(flashAttentionIndicators, forKey: "flashAttentionIndicators") }
+    }
+
+    @Published var showProgressIndicators: Bool {
+        didSet { defaults.set(showProgressIndicators, forKey: "showProgressIndicators") }
+    }
+
+    @Published var enableActivityMode: Bool {
+        didSet { defaults.set(enableActivityMode, forKey: "enableActivityMode") }
+    }
+
     @Published var startAtLogin: Bool {
         didSet { defaults.set(startAtLogin, forKey: "startAtLogin") }
     }
@@ -73,13 +91,23 @@ class TaskbarSettings: ObservableObject {
         titleFontSize = defaults.object(forKey: "titleFontSize") as? CGFloat ?? 12
         maxTaskWidth = defaults.object(forKey: "maxTaskWidth") as? CGFloat ?? 200
         showTitles = defaults.object(forKey: "showTitles") as? Bool ?? true
-        groupByApp = defaults.object(forKey: "groupByApp") as? Bool ?? false
+        if let rawValue = defaults.string(forKey: "groupingMode"),
+           let groupingMode = WindowGroupingMode(rawValue: rawValue) {
+            self.groupingMode = groupingMode
+        } else if defaults.object(forKey: "groupByApp") != nil {
+            self.groupingMode = (defaults.object(forKey: "groupByApp") as? Bool ?? false) ? .always : .never
+        } else {
+            groupingMode = .never
+        }
         dragReorder = defaults.object(forKey: "dragReorder") as? Bool ?? true
         middleClickCloses = defaults.object(forKey: "middleClickCloses") as? Bool ?? true
         thumbnailSize = defaults.object(forKey: "thumbnailSize") as? CGFloat ?? 200
         hoverDelay = defaults.object(forKey: "hoverDelay") as? TimeInterval ?? 0.4
         dockMode = DockMode(rawValue: defaults.string(forKey: "dockMode") ?? "") ?? .independent
         showOverFullScreenApps = defaults.object(forKey: "showOverFullScreenApps") as? Bool ?? false
+        flashAttentionIndicators = defaults.object(forKey: "flashAttentionIndicators") as? Bool ?? true
+        showProgressIndicators = defaults.object(forKey: "showProgressIndicators") as? Bool ?? true
+        enableActivityMode = defaults.object(forKey: "enableActivityMode") as? Bool ?? true
         startAtLogin = defaults.object(forKey: "startAtLogin") as? Bool ?? false
         showOnAllMonitors = defaults.object(forKey: "showOnAllMonitors") as? Bool ?? true
     }

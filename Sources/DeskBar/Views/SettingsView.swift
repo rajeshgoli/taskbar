@@ -37,11 +37,14 @@ final class SettingsView: NSView {
     private let thumbnailSizeSlider = NSSlider(value: 200, minValue: 100, maxValue: 400, target: nil, action: nil)
 
     private let hoverDelaySlider = NSSlider(value: 400, minValue: 100, maxValue: 1000, target: nil, action: nil)
-    private let groupByAppCheckbox = NSButton(checkboxWithTitle: "Group by app", target: nil, action: nil)
+    private let groupingModePopupButton = NSPopUpButton()
     private let dragReorderCheckbox = NSButton(checkboxWithTitle: "Drag reorder", target: nil, action: nil)
     private let middleClickClosesCheckbox = NSButton(checkboxWithTitle: "Middle-click closes", target: nil, action: nil)
     private let showOverFullscreenAppsCheckbox = NSButton(checkboxWithTitle: "Show over full-screen apps", target: nil, action: nil)
     private let showOnAllMonitorsCheckbox = NSButton(checkboxWithTitle: "Show on all monitors", target: nil, action: nil)
+    private let flashAttentionIndicatorsCheckbox = NSButton(checkboxWithTitle: "Flash apps that want attention", target: nil, action: nil)
+    private let showProgressIndicatorsCheckbox = NSButton(checkboxWithTitle: "Show app progress indicators", target: nil, action: nil)
+    private let enableActivityModeCheckbox = NSButton(checkboxWithTitle: "Activity mode (hold Control for CPU/RAM)", target: nil, action: nil)
 
     private let launcherTableView = NSTableView()
     private let launcherScrollView = NSScrollView()
@@ -110,13 +113,18 @@ final class SettingsView: NSView {
             makeLabeledControlRow(label: "Thumbnail size", control: thumbnailSizeSlider)
         ])
 
+        groupingModePopupButton.addItems(withTitles: ["Never", "Automatic", "Always"])
+
         let behaviorTab = NSTabViewItem(identifier: "behavior")
         behaviorTab.label = "Behavior"
         behaviorTab.view = makeFormView(rows: [
             makeLabeledControlRow(label: "Hover delay", control: hoverDelaySlider),
-            makeCheckboxRow(groupByAppCheckbox),
+            makeLabeledControlRow(label: "Window grouping", control: groupingModePopupButton),
             makeCheckboxRow(dragReorderCheckbox),
             makeCheckboxRow(middleClickClosesCheckbox),
+            makeCheckboxRow(flashAttentionIndicatorsCheckbox),
+            makeCheckboxRow(showProgressIndicatorsCheckbox),
+            makeCheckboxRow(enableActivityModeCheckbox),
             makeCheckboxRow(showOverFullscreenAppsCheckbox),
             makeCheckboxRow(showOnAllMonitorsCheckbox)
         ])
@@ -220,8 +228,8 @@ final class SettingsView: NSView {
         hoverDelaySlider.target = self
         hoverDelaySlider.action = #selector(hoverDelayChanged(_:))
 
-        groupByAppCheckbox.target = self
-        groupByAppCheckbox.action = #selector(groupByAppChanged(_:))
+        groupingModePopupButton.target = self
+        groupingModePopupButton.action = #selector(groupingModeChanged(_:))
 
         dragReorderCheckbox.target = self
         dragReorderCheckbox.action = #selector(dragReorderChanged(_:))
@@ -234,6 +242,15 @@ final class SettingsView: NSView {
 
         showOnAllMonitorsCheckbox.target = self
         showOnAllMonitorsCheckbox.action = #selector(showOnAllMonitorsChanged(_:))
+
+        flashAttentionIndicatorsCheckbox.target = self
+        flashAttentionIndicatorsCheckbox.action = #selector(flashAttentionIndicatorsChanged(_:))
+
+        showProgressIndicatorsCheckbox.target = self
+        showProgressIndicatorsCheckbox.action = #selector(showProgressIndicatorsChanged(_:))
+
+        enableActivityModeCheckbox.target = self
+        enableActivityModeCheckbox.action = #selector(enableActivityModeChanged(_:))
 
         removePinnedAppButton.target = self
         removePinnedAppButton.action = #selector(removePinnedApp(_:))
@@ -319,10 +336,20 @@ final class SettingsView: NSView {
             }
             .store(in: &cancellables)
 
-        settings.$groupByApp
+        settings.$groupingMode
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
-                self?.groupByAppCheckbox.state = value ? .on : .off
+                let index: Int
+                switch value {
+                case .never:
+                    index = 0
+                case .automatic:
+                    index = 1
+                case .always:
+                    index = 2
+                }
+
+                self?.groupingModePopupButton.selectItem(at: index)
             }
             .store(in: &cancellables)
 
@@ -351,6 +378,27 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.showOnAllMonitorsCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$flashAttentionIndicators
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.flashAttentionIndicatorsCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$showProgressIndicators
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showProgressIndicatorsCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$enableActivityMode
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.enableActivityModeCheckbox.state = value ? .on : .off
             }
             .store(in: &cancellables)
     }
@@ -813,8 +861,15 @@ final class SettingsView: NSView {
     }
 
     @objc
-    private func groupByAppChanged(_ sender: NSButton) {
-        settings.groupByApp = sender.state == .on
+    private func groupingModeChanged(_ sender: NSPopUpButton) {
+        switch sender.indexOfSelectedItem {
+        case 2:
+            settings.groupingMode = .always
+        case 1:
+            settings.groupingMode = .automatic
+        default:
+            settings.groupingMode = .never
+        }
     }
 
     @objc
@@ -835,6 +890,21 @@ final class SettingsView: NSView {
     @objc
     private func showOnAllMonitorsChanged(_ sender: NSButton) {
         settings.showOnAllMonitors = sender.state == .on
+    }
+
+    @objc
+    private func flashAttentionIndicatorsChanged(_ sender: NSButton) {
+        settings.flashAttentionIndicators = sender.state == .on
+    }
+
+    @objc
+    private func showProgressIndicatorsChanged(_ sender: NSButton) {
+        settings.showProgressIndicators = sender.state == .on
+    }
+
+    @objc
+    private func enableActivityModeChanged(_ sender: NSButton) {
+        settings.enableActivityMode = sender.state == .on
     }
 
     @objc
