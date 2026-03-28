@@ -262,18 +262,23 @@ final class AppStateMonitor: ObservableObject {
     }
 
     private func sampleResources(for pid: pid_t, timestamp: TimeInterval) -> ResourceSample {
-        var usage = rusage_info_current()
-        let result = withUnsafeMutablePointer(to: &usage) { pointer in
-            var usagePointer: rusage_info_t? = UnsafeMutableRawPointer(pointer)
-            return proc_pid_rusage(Int32(pid), RUSAGE_INFO_CURRENT, &usagePointer)
+        var taskInfo = proc_taskinfo()
+        let result = withUnsafeMutablePointer(to: &taskInfo) { pointer in
+            proc_pidinfo(
+                pid,
+                PROC_PIDTASKINFO,
+                0,
+                pointer,
+                Int32(MemoryLayout<proc_taskinfo>.size)
+            )
         }
 
-        guard result == 0 else {
+        guard result == MemoryLayout<proc_taskinfo>.size else {
             return ResourceSample(cpuPercent: nil, memoryMB: nil)
         }
 
-        let totalCPUTime = usage.ri_user_time + usage.ri_system_time
-        let memoryMB = Double(usage.ri_resident_size) / 1_048_576
+        let totalCPUTime = taskInfo.pti_total_user + taskInfo.pti_total_system
+        let memoryMB = Double(taskInfo.pti_resident_size) / 1_048_576
         var cpuPercent: Double?
 
         if let previousSample = cpuSamples[pid], timestamp > previousSample.timestamp {
