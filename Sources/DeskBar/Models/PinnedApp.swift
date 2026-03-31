@@ -5,15 +5,17 @@ struct PinnedApp: Codable, Identifiable, Equatable {
     var id: String { bundleIdentifier }
     let bundleIdentifier: String
     var name: String
-    var iconData: Data?
+
+    var applicationURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+    }
 
     var icon: NSImage? {
-        if let data = iconData {
-            return NSImage(data: data)
+        guard let applicationURL else {
+            return nil
         }
 
-        return NSWorkspace.shared.icon(forFile:
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)?.path ?? "")
+        return NSWorkspace.shared.icon(forFile: applicationURL.path)
     }
 
     var isRunning: Bool {
@@ -28,6 +30,8 @@ final class PinnedAppManager: ObservableObject {
     private let defaultsKey: String
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private let legacyIconDataMarker = Data(#""iconData""#.utf8)
+    private var shouldRewriteStoredApps = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -37,6 +41,10 @@ final class PinnedAppManager: ObservableObject {
         self.defaultsKey = defaultsKey
         pinnedApps = []
         pinnedApps = loadPinnedApps()
+
+        if shouldRewriteStoredApps {
+            savePinnedApps()
+        }
     }
 
     func pin(bundleIdentifier: String, name: String) {
@@ -44,15 +52,10 @@ final class PinnedAppManager: ObservableObject {
             return
         }
 
-        let iconData = NSWorkspace.shared
-            .urlForApplication(withBundleIdentifier: bundleIdentifier)
-            .map { NSWorkspace.shared.icon(forFile: $0.path).tiffRepresentation } ?? nil
-
         pinnedApps.append(
             PinnedApp(
                 bundleIdentifier: bundleIdentifier,
-                name: name,
-                iconData: iconData
+                name: name
             )
         )
         savePinnedApps()
@@ -86,6 +89,8 @@ final class PinnedAppManager: ObservableObject {
         guard let data = defaults.data(forKey: defaultsKey) else {
             return []
         }
+
+        shouldRewriteStoredApps = data.range(of: legacyIconDataMarker) != nil
 
         return (try? decoder.decode([PinnedApp].self, from: data)) ?? []
     }

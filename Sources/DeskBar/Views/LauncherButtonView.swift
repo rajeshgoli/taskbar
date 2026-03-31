@@ -67,12 +67,15 @@ final class LauncherButtonView: NSView {
             return
         }
 
-        if let runningApp = runningApplication, runningApp.isTerminated == false {
-            // App is running — activate and raise its windows
-            activateMostRecentWindow()
-        } else {
-            // App is not running — launch it
+        switch actionForPrimaryClick() {
+        case .launchApplication:
             launchApplication()
+        case .activateMostRecentWindow:
+            activateMostRecentWindow()
+        case .activateApplication:
+            _ = runningApplication?.activate(options: .activateAllWindows)
+        case .openFinderWindow:
+            openFinderWindow()
         }
     }
 
@@ -127,12 +130,42 @@ final class LauncherButtonView: NSView {
         return NSWorkspace.shared.icon(forFile: applicationURL.path).scaled(to: NSSize(width: 32, height: 32))
     }
 
+    private func actionForPrimaryClick() -> LauncherActivationAction {
+        let isRunning = runningApplication?.isTerminated == false
+        let hasAnyWindows: Bool
+
+        if let runningApplication, isRunning {
+            hasAnyWindows = !accessibilityService.enumerateWindows(for: runningApplication).isEmpty
+        } else {
+            hasAnyWindows = false
+        }
+
+        return LauncherActivationPlanner.action(
+            bundleIdentifier: pinnedApp.bundleIdentifier,
+            isRunning: isRunning,
+            hasVisibleLocalWindows: !visibleLocalWindows.isEmpty,
+            hasAnyWindows: hasAnyWindows
+        )
+    }
+
     private func launchApplication() {
-        guard let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: pinnedApp.bundleIdentifier) else {
+        guard let applicationURL = pinnedApp.applicationURL else {
             return
         }
 
-        NSWorkspace.shared.open(applicationURL)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, _ in }
+    }
+
+    private func openFinderWindow() {
+        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+
+        if NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: homeURL.path) {
+            return
+        }
+
+        _ = NSWorkspace.shared.open(homeURL)
     }
 
     private func activateMostRecentWindow() {
