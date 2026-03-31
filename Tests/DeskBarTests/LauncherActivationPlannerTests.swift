@@ -8,7 +8,7 @@ func launcherActivationPlannerLaunchesNonRunningApps() {
             bundleIdentifier: "com.example.alpha",
             isRunning: false,
             hasVisibleLocalWindows: false,
-            hasAnyWindows: false
+            hasAnyWindows: nil
         ) == .launchApplication
     )
 }
@@ -57,6 +57,18 @@ func launcherActivationPlannerActivatesFinderWhenWindowsExistElsewhere() {
             isRunning: true,
             hasVisibleLocalWindows: false,
             hasAnyWindows: true
+        ) == .activateApplication
+    )
+}
+
+@Test
+func launcherActivationPlannerDoesNotOpenFinderWindowWhenWindowStateIsUnknown() {
+    #expect(
+        LauncherActivationPlanner.action(
+            bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
+            isRunning: true,
+            hasVisibleLocalWindows: false,
+            hasAnyWindows: nil
         ) == .activateApplication
     )
 }

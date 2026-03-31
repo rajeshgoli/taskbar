@@ -70,6 +70,24 @@ func pinnedAppManagerMigratesLegacyIconPayloads() throws {
     #expect(!rewrittenJSON.contains(#""iconData""#))
 }
 
+@Test
+func pinnedAppManagerDoesNotRewriteMalformedLegacyPayloads() {
+    let suiteName = "PinnedAppManagerTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let malformedLegacyData = Data(#"[{"bundleIdentifier":"com.example.alpha","name":"Alpha","iconData":"oops"}"#.utf8)
+    defaults.set(malformedLegacyData, forKey: "pinnedApps")
+
+    let manager = PinnedAppManager(defaults: defaults)
+
+    #expect(manager.pinnedApps.isEmpty)
+    #expect(defaults.data(forKey: "pinnedApps") == malformedLegacyData)
+}
+
 private struct LegacyPinnedAppFixture: Encodable {
     let bundleIdentifier: String
     let name: String

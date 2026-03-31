@@ -469,12 +469,12 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     }
 
     private func actionForPrimaryClick() -> LauncherActivationAction {
-        let hasAnyWindows: Bool
+        let hasAnyWindows: Bool?
 
-        if let runningApplication {
+        if let runningApplication, AXIsProcessTrusted() {
             hasAnyWindows = !accessibilityService.enumerateWindows(for: runningApplication).isEmpty
         } else {
-            hasAnyWindows = false
+            hasAnyWindows = nil
         }
 
         return LauncherActivationPlanner.action(

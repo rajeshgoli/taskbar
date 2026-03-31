@@ -132,12 +132,12 @@ final class LauncherButtonView: NSView {
 
     private func actionForPrimaryClick() -> LauncherActivationAction {
         let isRunning = runningApplication?.isTerminated == false
-        let hasAnyWindows: Bool
+        let hasAnyWindows: Bool?
 
-        if let runningApplication, isRunning {
+        if let runningApplication, isRunning, AXIsProcessTrusted() {
             hasAnyWindows = !accessibilityService.enumerateWindows(for: runningApplication).isEmpty
         } else {
-            hasAnyWindows = false
+            hasAnyWindows = nil
         }
 
         return LauncherActivationPlanner.action(

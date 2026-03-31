@@ -12,16 +12,20 @@ enum LauncherActivationPlanner {
         bundleIdentifier: String,
         isRunning: Bool,
         hasVisibleLocalWindows: Bool,
-        hasAnyWindows: Bool
+        hasAnyWindows: Bool?
     ) -> LauncherActivationAction {
         if hasVisibleLocalWindows {
             return .activateMostRecentWindow
         }
 
-        if bundleIdentifier == finderBundleIdentifier {
-            return hasAnyWindows ? .activateApplication : .openFinderWindow
+        if !isRunning {
+            return .launchApplication
         }
 
-        return isRunning ? .activateApplication : .launchApplication
+        if bundleIdentifier == finderBundleIdentifier {
+            return hasAnyWindows == false ? .openFinderWindow : .activateApplication
+        }
+
+        return .activateApplication
     }
 }

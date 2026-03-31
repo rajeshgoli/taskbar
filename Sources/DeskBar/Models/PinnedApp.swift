@@ -90,9 +90,13 @@ final class PinnedAppManager: ObservableObject {
             return []
         }
 
-        shouldRewriteStoredApps = data.range(of: legacyIconDataMarker) != nil
+        let pinnedApps = (try? decoder.decode([PinnedApp].self, from: data)) ?? []
 
-        return (try? decoder.decode([PinnedApp].self, from: data)) ?? []
+        shouldRewriteStoredApps =
+            data.range(of: legacyIconDataMarker) != nil &&
+            !pinnedApps.isEmpty
+
+        return pinnedApps
     }
 
     private func savePinnedApps() {
