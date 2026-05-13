@@ -246,22 +246,13 @@ final class WindowManager: ObservableObject {
               let displayID = ScreenGeometry.displayID(for: screen),
               activeDisplayIDs.contains(displayID)
         else { return }
-        let displayBounds = ScreenGeometry.displayBounds(for: screen)
+        guard let adjustedFrame = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+            for: frame,
+            onDisplay: ScreenGeometry.displayBounds(for: screen),
+            taskbarHeight: taskbarHeight
+        ) else { return }
 
-        // Only adjust windows that look "zoomed" — nearly full screen width
-        guard abs(frame.width - displayBounds.width) <= 20 else { return }
-
-        // Check if the window's bottom edge extends into the DeskBar area
-        let taskbarTop = displayBounds.maxY - taskbarHeight
-        let windowBottom = frame.origin.y + frame.size.height
-
-        guard windowBottom > taskbarTop + 2 else { return }
-
-        // Shrink the window height so it sits just above DeskBar
-        let newHeight = taskbarTop - frame.origin.y
-        guard newHeight > 100 else { return }
-
-        var size = CGSize(width: frame.width, height: newHeight)
+        var size = adjustedFrame.size
         guard let sizeValue = AXValueCreate(.cgSize, &size) else { return }
         AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
     }

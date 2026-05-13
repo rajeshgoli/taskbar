@@ -64,6 +64,7 @@ tccutil reset Accessibility com.deskbar.app
 |--------|-------------|
 | **Click** a task button | Raises that specific window |
 | **Right-click** a task button | Dock-style menu: window list, Show All Windows, Hide, Pin, Blacklist, Quit |
+| **Click** the Apps button | Opens the macOS Apps launcher |
 | **Click** a launcher icon | Activates the app (launches if not running) |
 | **Right-click** a launcher icon | Unpin from launcher |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
@@ -77,7 +78,7 @@ Accessible via the gear icon in the menu bar.
 
 | Tab | Options |
 |-----|---------|
-| General | Start at login, Launchpad button, Dock mode |
+| General | Start at login, Dock mode |
 | Appearance | Taskbar height, font size, max button width, show titles, thumbnail size |
 | Behavior | Hover delay, group by app, drag reorder, middle-click closes, show over full-screen, multi-monitor |
 | Launcher | Manage pinned apps |

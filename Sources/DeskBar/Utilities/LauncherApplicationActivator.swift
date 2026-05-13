@@ -1,0 +1,75 @@
+import AppKit
+
+enum LauncherApplicationActivator {
+    static func launch(bundleIdentifier: String, applicationURL: URL?) {
+        if let applicationURL = applicationURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            openApplication(at: applicationURL)
+            return
+        }
+
+        print("DeskBar: unable to resolve launcher application for bundle identifier \(bundleIdentifier)")
+    }
+
+    static func activate(
+        _ application: NSRunningApplication,
+        bundleIdentifier: String,
+        applicationURL: URL?,
+        shouldReopen: Bool
+    ) {
+        application.unhide()
+        _ = application.activate(options: .activateAllWindows)
+
+        guard shouldReopen else {
+            return
+        }
+
+        launch(bundleIdentifier: bundleIdentifier, applicationURL: applicationURL ?? application.bundleURL)
+    }
+
+    static func openFinderWindow() {
+        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+
+        if NSWorkspace.shared.open(homeURL) {
+            return
+        }
+
+        launch(
+            bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
+            applicationURL: NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier
+            )
+        )
+    }
+
+    static func hasCGWindows(for application: NSRunningApplication) -> Bool {
+        guard
+            let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]
+        else {
+            return false
+        }
+
+        return windowList.contains { entry in
+            guard
+                let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                pid == application.processIdentifier,
+                let layer = entry[kCGWindowLayer as String] as? Int,
+                let boundsDictionary = entry[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary)
+            else {
+                return false
+            }
+
+            return layer == 0 && bounds.width * bounds.height >= 100
+        }
+    }
+
+    private static func openApplication(at applicationURL: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, error in
+            if let error {
+                print("DeskBar: failed to open launcher application at \(applicationURL.path): \(error)")
+            }
+        }
+    }
+}

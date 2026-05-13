@@ -50,25 +50,25 @@ func launcherActivationPlannerOpensFinderWindowWhenFinderHasNoWindows() {
 }
 
 @Test
-func launcherActivationPlannerActivatesFinderWhenWindowsExistElsewhere() {
+func launcherActivationPlannerOpensFinderWindowWhenNoLocalFinderWindowExists() {
     #expect(
         LauncherActivationPlanner.action(
             bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
             isRunning: true,
             hasVisibleLocalWindows: false,
             hasAnyWindows: true
-        ) == .activateApplication
+        ) == .openFinderWindow
     )
 }
 
 @Test
-func launcherActivationPlannerDoesNotOpenFinderWindowWhenWindowStateIsUnknown() {
+func launcherActivationPlannerOpensFinderWindowWhenFinderWindowStateIsUnknown() {
     #expect(
         LauncherActivationPlanner.action(
             bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
             isRunning: true,
             hasVisibleLocalWindows: false,
             hasAnyWindows: nil
-        ) == .activateApplication
+        ) == .openFinderWindow
     )
 }

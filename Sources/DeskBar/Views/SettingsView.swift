@@ -27,7 +27,6 @@ final class SettingsView: NSView {
     private let tabView = NSTabView()
 
     private let startAtLoginCheckbox = NSButton(checkboxWithTitle: "Start at login", target: nil, action: nil)
-    private let showLaunchpadButtonCheckbox = NSButton(checkboxWithTitle: "Show Launchpad button", target: nil, action: nil)
     private let dockModePopupButton = NSPopUpButton()
 
     private let taskbarHeightSlider = NSSlider(value: 40, minValue: 30, maxValue: 60, target: nil, action: nil)
@@ -99,7 +98,6 @@ final class SettingsView: NSView {
         generalTab.label = "General"
         generalTab.view = makeFormView(rows: [
             makeCheckboxRow(startAtLoginCheckbox),
-            makeCheckboxRow(showLaunchpadButtonCheckbox),
             makeLabeledControlRow(label: "Dock mode", control: dockModePopupButton)
         ])
 
@@ -204,9 +202,6 @@ final class SettingsView: NSView {
         startAtLoginCheckbox.target = self
         startAtLoginCheckbox.action = #selector(startAtLoginChanged(_:))
 
-        showLaunchpadButtonCheckbox.target = self
-        showLaunchpadButtonCheckbox.action = #selector(showLaunchpadButtonChanged(_:))
-
         dockModePopupButton.target = self
         dockModePopupButton.action = #selector(dockModeChanged(_:))
 
@@ -267,13 +262,6 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.startAtLoginCheckbox.state = value ? .on : .off
-            }
-            .store(in: &cancellables)
-
-        settings.$showLaunchpadButton
-            .receive(on: RunLoop.main)
-            .sink { [weak self] value in
-                self?.showLaunchpadButtonCheckbox.state = value ? .on : .off
             }
             .store(in: &cancellables)
 
@@ -811,11 +799,6 @@ final class SettingsView: NSView {
     @objc
     private func startAtLoginChanged(_ sender: NSButton) {
         settings.startAtLogin = sender.state == .on
-    }
-
-    @objc
-    private func showLaunchpadButtonChanged(_ sender: NSButton) {
-        settings.showLaunchpadButton = sender.state == .on
     }
 
     @objc

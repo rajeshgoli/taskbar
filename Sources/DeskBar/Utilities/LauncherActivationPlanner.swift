@@ -23,7 +23,7 @@ enum LauncherActivationPlanner {
         }
 
         if bundleIdentifier == finderBundleIdentifier {
-            return hasAnyWindows == false ? .openFinderWindow : .activateApplication
+            return .openFinderWindow
         }
 
         return .activateApplication

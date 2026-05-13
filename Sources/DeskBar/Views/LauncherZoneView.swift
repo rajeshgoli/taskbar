@@ -83,13 +83,6 @@ final class LauncherZoneView: NSStackView {
     }
 
     private func bindState() {
-        settings.$showLaunchpadButton
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.scheduleRebuild()
-            }
-            .store(in: &cancellables)
-
         settings.$dragReorder
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -157,9 +150,7 @@ final class LauncherZoneView: NSStackView {
             view.removeFromSuperview()
         }
 
-        if settings.showLaunchpadButton {
-            buttonsStackView.addArrangedSubview(LaunchpadButtonView())
-        }
+        buttonsStackView.addArrangedSubview(AppsLauncherButtonView())
 
         let runningApplicationsByBundleIdentifier: [String: NSRunningApplication] =
             NSWorkspace.shared.runningApplications.reduce(into: [:]) { result, application in
@@ -406,7 +397,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         case .activateMostRecentWindow:
             activateMostRecentWindow()
         case .activateApplication:
-            _ = runningApplication?.activate(options: .activateAllWindows)
+            activateApplication()
         case .openFinderWindow:
             openFinderWindow()
         }
@@ -469,13 +460,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     }
 
     private func actionForPrimaryClick() -> LauncherActivationAction {
-        let hasAnyWindows: Bool?
-
-        if let runningApplication, AXIsProcessTrusted() {
-            hasAnyWindows = !accessibilityService.enumerateWindows(for: runningApplication).isEmpty
-        } else {
-            hasAnyWindows = nil
-        }
+        let hasAnyWindows = hasAnyApplicationWindows()
 
         return LauncherActivationPlanner.action(
             bundleIdentifier: pinnedApp.bundleIdentifier,
@@ -486,23 +471,43 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     }
 
     private func launchApplication() {
-        guard let applicationURL = pinnedApp.applicationURL else {
+        LauncherApplicationActivator.launch(
+            bundleIdentifier: pinnedApp.bundleIdentifier,
+            applicationURL: pinnedApp.applicationURL
+        )
+    }
+
+    private func activateApplication() {
+        guard let runningApplication else {
+            launchApplication()
             return
         }
 
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, _ in }
+        LauncherApplicationActivator.activate(
+            runningApplication,
+            bundleIdentifier: pinnedApp.bundleIdentifier,
+            applicationURL: pinnedApp.applicationURL,
+            shouldReopen: hasAnyApplicationWindows() == false
+        )
     }
 
     private func openFinderWindow() {
-        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+        LauncherApplicationActivator.openFinderWindow()
+    }
 
-        if NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: homeURL.path) {
-            return
+    private func hasAnyApplicationWindows() -> Bool? {
+        guard let runningApplication else {
+            return nil
         }
 
-        _ = NSWorkspace.shared.open(homeURL)
+        if AXIsProcessTrusted() {
+            let windows = accessibilityService.enumerateWindows(for: runningApplication)
+            if !windows.isEmpty {
+                return true
+            }
+        }
+
+        return LauncherApplicationActivator.hasCGWindows(for: runningApplication)
     }
 
     private func activateMostRecentWindow() {
@@ -516,7 +521,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
             return
         }
 
-        _ = runningApplication.activate(options: .activateAllWindows)
+        activateApplication()
     }
 
     private func preferredWindowElement(

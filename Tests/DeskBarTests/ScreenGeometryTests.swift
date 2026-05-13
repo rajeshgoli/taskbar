@@ -41,3 +41,78 @@ func nonFullScreenWindowDoesNotMatchDisplayBounds() {
 
     #expect(!ScreenGeometry.matchesFullScreenWindow(bounds: windowBounds, onDisplay: displayBounds))
 }
+
+@Test
+func fullWidthSystemFillWindowIsAdjustedAboveTaskbar() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 25, width: 1920, height: 1055)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted?.height == 1015)
+    #expect(adjusted?.maxY == 1040)
+}
+
+@Test
+func leftHalfSystemFillWindowIsAdjustedAboveTaskbar() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 25, width: 960, height: 1055)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted?.width == 960)
+    #expect(adjusted?.height == 1015)
+    #expect(adjusted?.maxY == 1040)
+}
+
+@Test
+func rightHalfSystemFillWindowIsAdjustedAboveTaskbar() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 960, y: 25, width: 960, height: 1055)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted?.minX == 960)
+    #expect(adjusted?.height == 1015)
+    #expect(adjusted?.maxY == 1040)
+}
+
+@Test
+func shortManualWindowIsNotAdjustedForTaskbar() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 600, width: 960, height: 480)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted == nil)
+}
+
+@Test
+func tallManualSideWindowIsNotAdjustedWhenNotTopAligned() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 240, width: 960, height: 840)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted == nil)
+}
