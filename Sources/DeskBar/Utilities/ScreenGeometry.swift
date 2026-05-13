@@ -100,12 +100,20 @@ struct ScreenGeometry {
     }
 
     static func resemblesSystemFillWindow(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
-        guard frame.height >= displayBounds.height * minimumSystemFillHeightRatio else {
+        guard
+            isTopAlignedSystemFill(frame: frame, onDisplay: displayBounds),
+            frame.height >= displayBounds.height * minimumSystemFillHeightRatio
+        else {
             return false
         }
 
         return resemblesFullWidthFill(frame: frame, onDisplay: displayBounds) ||
             resemblesHalfWidthFill(frame: frame, onDisplay: displayBounds)
+    }
+
+    private static func isTopAlignedSystemFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+        nearlyEqual(frame.minY, displayBounds.minY) ||
+            nearlyEqual(frame.minY, displayBounds.minY + menuBarInset)
     }
 
     private static func resemblesFullWidthFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {

@@ -102,3 +102,17 @@ func shortManualWindowIsNotAdjustedForTaskbar() {
 
     #expect(adjusted == nil)
 }
+
+@Test
+func tallManualSideWindowIsNotAdjustedWhenNotTopAligned() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 240, width: 960, height: 840)
+
+    let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        taskbarHeight: 40
+    )
+
+    #expect(adjusted == nil)
+}
