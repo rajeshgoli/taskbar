@@ -248,7 +248,7 @@ final class WindowManager: ObservableObject {
         else { return }
         guard let adjustedFrame = ScreenGeometry.adjustedFrameAvoidingTaskbar(
             for: frame,
-            onDisplay: ScreenGeometry.displayBounds(for: screen),
+            on: screen,
             taskbarHeight: taskbarHeight
         ) else { return }
 
