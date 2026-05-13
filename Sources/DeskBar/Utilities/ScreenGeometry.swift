@@ -54,6 +54,10 @@ struct ScreenGeometry {
         return screen.frame
     }
 
+    static func topInset(for screen: NSScreen) -> CGFloat {
+        max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+    }
+
     /// Check if a window belongs to a specific display using CGDisplayBounds containment.
     static func isWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
         displayBounds.contains(bounds.origin)
@@ -74,10 +78,37 @@ struct ScreenGeometry {
 
     static func adjustedFrameAvoidingTaskbar(
         for frame: CGRect,
+        on screen: NSScreen,
+        taskbarHeight: CGFloat
+    ) -> CGRect? {
+        adjustedFrameAvoidingTaskbar(
+            for: frame,
+            onDisplay: displayBounds(for: screen),
+            topInset: topInset(for: screen),
+            taskbarHeight: taskbarHeight
+        )
+    }
+
+    static func adjustedFrameAvoidingTaskbar(
+        for frame: CGRect,
         onDisplay displayBounds: CGRect,
         taskbarHeight: CGFloat
     ) -> CGRect? {
-        guard resemblesSystemFillWindow(frame: frame, onDisplay: displayBounds) else {
+        adjustedFrameAvoidingTaskbar(
+            for: frame,
+            onDisplay: displayBounds,
+            topInset: menuBarInset,
+            taskbarHeight: taskbarHeight
+        )
+    }
+
+    static func adjustedFrameAvoidingTaskbar(
+        for frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        topInset: CGFloat,
+        taskbarHeight: CGFloat
+    ) -> CGRect? {
+        guard resemblesSystemFillWindow(frame: frame, onDisplay: displayBounds, topInset: topInset) else {
             return nil
         }
 
@@ -99,9 +130,13 @@ struct ScreenGeometry {
         )
     }
 
-    static func resemblesSystemFillWindow(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+    static func resemblesSystemFillWindow(
+        frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        topInset: CGFloat = menuBarInset
+    ) -> Bool {
         guard
-            isTopAlignedSystemFill(frame: frame, onDisplay: displayBounds),
+            isTopAlignedSystemFill(frame: frame, onDisplay: displayBounds, topInset: topInset),
             frame.height >= displayBounds.height * minimumSystemFillHeightRatio
         else {
             return false
@@ -111,9 +146,13 @@ struct ScreenGeometry {
             resemblesHalfWidthFill(frame: frame, onDisplay: displayBounds)
     }
 
-    private static func isTopAlignedSystemFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+    private static func isTopAlignedSystemFill(
+        frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        topInset: CGFloat
+    ) -> Bool {
         nearlyEqual(frame.minY, displayBounds.minY) ||
-            nearlyEqual(frame.minY, displayBounds.minY + menuBarInset)
+            nearlyEqual(frame.minY, displayBounds.minY + topInset)
     }
 
     private static func resemblesFullWidthFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {

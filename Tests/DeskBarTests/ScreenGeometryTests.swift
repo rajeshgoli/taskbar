@@ -60,32 +60,34 @@ func fullWidthSystemFillWindowIsAdjustedAboveTaskbar() {
 @Test
 func leftHalfSystemFillWindowIsAdjustedAboveTaskbar() {
     let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let windowBounds = CGRect(x: 0, y: 25, width: 960, height: 1055)
+    let windowBounds = CGRect(x: 0, y: 30, width: 960, height: 1050)
 
     let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
         for: windowBounds,
         onDisplay: displayBounds,
+        topInset: 30,
         taskbarHeight: 40
     )
 
     #expect(adjusted?.width == 960)
-    #expect(adjusted?.height == 1015)
+    #expect(adjusted?.height == 1010)
     #expect(adjusted?.maxY == 1040)
 }
 
 @Test
 func rightHalfSystemFillWindowIsAdjustedAboveTaskbar() {
     let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let windowBounds = CGRect(x: 960, y: 25, width: 960, height: 1055)
+    let windowBounds = CGRect(x: 960, y: 30, width: 960, height: 1050)
 
     let adjusted = ScreenGeometry.adjustedFrameAvoidingTaskbar(
         for: windowBounds,
         onDisplay: displayBounds,
+        topInset: 30,
         taskbarHeight: 40
     )
 
     #expect(adjusted?.minX == 960)
-    #expect(adjusted?.height == 1015)
+    #expect(adjusted?.height == 1010)
     #expect(adjusted?.maxY == 1040)
 }
 
