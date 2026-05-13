@@ -1,7 +1,9 @@
 import AppKit
 
-final class LaunchpadButtonView: NSView {
-    private static let launchpadPath = "/System/Applications/Launchpad.app"
+final class AppsLauncherButtonView: NSView {
+    private static let appsBundleIdentifier = "com.apple.apps.launcher"
+    private static let appsPath = "/System/Applications/Apps.app"
+    private static let legacyLaunchpadPath = "/System/Applications/Launchpad.app"
 
     private let iconView = NSImageView()
     private var trackingAreaRef: NSTrackingArea?
@@ -17,7 +19,7 @@ final class LaunchpadButtonView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.cornerRadius = 8
-        toolTip = "Launchpad"
+        toolTip = "Apps"
 
         configureSubviews()
         updateBackgroundColor()
@@ -60,25 +62,76 @@ final class LaunchpadButtonView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: Self.launchpadPath))
+        guard !event.modifierFlags.contains(.control) else {
+            showContextMenu(with: event)
+            return
+        }
+
+        openAppsLauncher()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        showContextMenu(with: event)
     }
 
     private func configureSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.image = NSWorkspace.shared
-            .icon(forFile: Self.launchpadPath)
-            .scaled(to: NSSize(width: 32, height: 32))
+        iconView.image = launcherIcon()
 
         addSubview(iconView)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 36),
+            heightAnchor.constraint(equalToConstant: 42),
+
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 28),
             iconView.heightAnchor.constraint(equalToConstant: 28)
         ])
+    }
+
+    private func openAppsLauncher() {
+        LauncherApplicationActivator.launch(
+            bundleIdentifier: Self.appsBundleIdentifier,
+            applicationURL: launcherApplicationURL()
+        )
+    }
+
+    private func launcherApplicationURL() -> URL? {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.appsBundleIdentifier) {
+            return url
+        }
+
+        for path in [Self.appsPath, Self.legacyLaunchpadPath] where FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        return nil
+    }
+
+    private func launcherIcon() -> NSImage? {
+        if let url = launcherApplicationURL() {
+            return NSWorkspace.shared.icon(forFile: url.path).scaled(to: NSSize(width: 32, height: 32))
+        }
+
+        let image = NSImage(systemSymbolName: "square.grid.3x3.fill", accessibilityDescription: "Apps")
+        image?.isTemplate = true
+        return image
+    }
+
+    private func showContextMenu(with event: NSEvent) {
+        let menu = NSMenu()
+        let openItem = NSMenuItem(title: "Open Apps", action: #selector(openAppsFromMenu(_:)), keyEquivalent: "")
+        openItem.target = self
+        menu.addItem(openItem)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc
+    private func openAppsFromMenu(_ sender: Any?) {
+        openAppsLauncher()
     }
 
     private func updateBackgroundColor() {

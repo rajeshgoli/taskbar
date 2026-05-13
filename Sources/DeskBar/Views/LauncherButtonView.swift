@@ -73,7 +73,7 @@ final class LauncherButtonView: NSView {
         case .activateMostRecentWindow:
             activateMostRecentWindow()
         case .activateApplication:
-            _ = runningApplication?.activate(options: .activateAllWindows)
+            activateApplication()
         case .openFinderWindow:
             openFinderWindow()
         }
@@ -132,13 +132,7 @@ final class LauncherButtonView: NSView {
 
     private func actionForPrimaryClick() -> LauncherActivationAction {
         let isRunning = runningApplication?.isTerminated == false
-        let hasAnyWindows: Bool?
-
-        if let runningApplication, isRunning, AXIsProcessTrusted() {
-            hasAnyWindows = !accessibilityService.enumerateWindows(for: runningApplication).isEmpty
-        } else {
-            hasAnyWindows = nil
-        }
+        let hasAnyWindows = hasAnyApplicationWindows()
 
         return LauncherActivationPlanner.action(
             bundleIdentifier: pinnedApp.bundleIdentifier,
@@ -149,23 +143,43 @@ final class LauncherButtonView: NSView {
     }
 
     private func launchApplication() {
-        guard let applicationURL = pinnedApp.applicationURL else {
+        LauncherApplicationActivator.launch(
+            bundleIdentifier: pinnedApp.bundleIdentifier,
+            applicationURL: pinnedApp.applicationURL
+        )
+    }
+
+    private func activateApplication() {
+        guard let runningApplication else {
+            launchApplication()
             return
         }
 
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, _ in }
+        LauncherApplicationActivator.activate(
+            runningApplication,
+            bundleIdentifier: pinnedApp.bundleIdentifier,
+            applicationURL: pinnedApp.applicationURL,
+            shouldReopen: hasAnyApplicationWindows() == false
+        )
     }
 
     private func openFinderWindow() {
-        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+        LauncherApplicationActivator.openFinderWindow()
+    }
 
-        if NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: homeURL.path) {
-            return
+    private func hasAnyApplicationWindows() -> Bool? {
+        guard let runningApplication else {
+            return nil
         }
 
-        _ = NSWorkspace.shared.open(homeURL)
+        if AXIsProcessTrusted() {
+            let windows = accessibilityService.enumerateWindows(for: runningApplication)
+            if !windows.isEmpty {
+                return true
+            }
+        }
+
+        return LauncherApplicationActivator.hasCGWindows(for: runningApplication)
     }
 
     private func activateMostRecentWindow() {
@@ -182,7 +196,7 @@ final class LauncherButtonView: NSView {
             return
         }
 
-        _ = runningApplication.activate(options: .activateAllWindows)
+        activateApplication()
     }
 
     private func preferredWindowElement(
@@ -323,7 +337,7 @@ final class LauncherButtonView: NSView {
             return
         }
 
-        _ = runningApplication.activate(options: .activateAllWindows)
+        activateApplication()
     }
 
     @objc

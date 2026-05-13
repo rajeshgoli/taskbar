@@ -34,7 +34,7 @@ Rather than work around a buggy third-party app with a suspicious bundle ID, we'
 13. Window grouping by app (optional toggle)
 14. Drag-and-drop task reordering
 15. Middle-click to close window
-16. Launchpad button
+16. Apps launcher button
 17. Notification badge dots (best-effort)
 
 ### Nice to Have (Phase 8)
@@ -87,13 +87,13 @@ Rather than work around a buggy third-party app with a suspicious bundle ID, we'
     Views/
       TaskbarPanel.swift             # NSPanel: the taskbar window itself
       TaskbarContentView.swift       # Three-zone horizontal layout container
+      AppsLauncherButtonView.swift   # Leftmost macOS Apps launcher button
       LauncherZoneView.swift         # Left zone: pinned app launchers
       LauncherButtonView.swift       # Individual launcher icon
       TaskZoneView.swift             # Middle zone: window-level task buttons
       TaskButtonView.swift           # Individual task (icon + title + interactions)
       RunningAppTrayView.swift       # Right zone: backgrounded app icons
       TrayIconView.swift             # Individual tray icon
-      LaunchpadButtonView.swift      # Launchpad launcher button
       ThumbnailPopover.swift         # NSPopover for hover thumbnail preview
       SettingsWindowController.swift # Preferences window controller
       SettingsView.swift             # Preferences UI content
@@ -438,7 +438,7 @@ TaskbarContentView
 | Multi-monitor | `NSScreen.screens` + `didChangeScreenParametersNotification` |
 | Settings persistence | `UserDefaults(suiteName: "com.deskbar.app")` |
 | Start at login | Write LaunchAgent plist to `~/Library/LaunchAgents/` |
-| Open Launchpad | `NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Launchpad.app"))` |
+| Open Apps launcher | `NSWorkspace.openApplication` for `com.apple.apps.launcher` |
 | Hide Dock | `defaults write com.apple.dock autohide` + `killall Dock` |
 | Drag reorder | `NSDraggingSource` / `NSDraggingDestination` |
 | Hover detection | `NSTrackingArea` with `.mouseEnteredAndExited` |
@@ -513,7 +513,6 @@ Settings table:
 
 | Setting | Default |
 |---|---|
-| Show Launchpad button | true |
 | Taskbar height | 40pt |
 | Title font size | 12pt |
 | Max task width | 200pt |
@@ -558,11 +557,11 @@ Create: `AppGroup.swift`, `BadgeMonitor.swift`
 
 ### Phase 8: System Integration + Packaging
 
-Create: `LoginItemManager.swift`, `DockManager.swift`, `LaunchpadButtonView.swift`, `scripts/build.sh`, `scripts/package.sh`, `Info.plist.template`
+Create: `LoginItemManager.swift`, `DockManager.swift`, `AppsLauncherButtonView.swift`, `scripts/build.sh`, `scripts/package.sh`, `Info.plist.template`
 
 - LaunchAgent plist for start-at-login
 - Dock coexistence: three-mode DockManager (`independent`/`autoHide`/`hidden`), prior-state persistence to `~/.config/deskbar/dock-prior-state.json`, defense-in-depth restore (applicationWillTerminate, SIGTERM/SIGINT handlers, companion watchdog LaunchAgent). See Dock Coexistence section.
-- Launchpad button widget
+- Apps launcher button at the left edge of the Launcher Zone
 - Multi-monitor: taskbar panel per screen, each panel scoped to its own display's windows. Display-scoped full-screen scan hides only the affected panel. See Spaces and Full-Screen Behavior.
 - App bundle packaging script
 - Ad-hoc codesign

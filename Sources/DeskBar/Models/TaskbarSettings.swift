@@ -16,10 +16,6 @@ enum WindowGroupingMode: String, CaseIterable {
 class TaskbarSettings: ObservableObject {
     private let defaults: UserDefaults
 
-    @Published var showLaunchpadButton: Bool {
-        didSet { defaults.set(showLaunchpadButton, forKey: "showLaunchpadButton") }
-    }
-
     @Published var taskbarHeight: CGFloat {
         didSet { defaults.set(taskbarHeight, forKey: "taskbarHeight") }
     }
@@ -86,7 +82,6 @@ class TaskbarSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        showLaunchpadButton = defaults.object(forKey: "showLaunchpadButton") as? Bool ?? true
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? 40
         titleFontSize = defaults.object(forKey: "titleFontSize") as? CGFloat ?? 12
         maxTaskWidth = defaults.object(forKey: "maxTaskWidth") as? CGFloat ?? 200

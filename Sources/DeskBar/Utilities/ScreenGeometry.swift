@@ -3,6 +3,8 @@ import AppKit
 struct ScreenGeometry {
     private static let fullScreenTolerance: CGFloat = 2
     private static let menuBarInset: CGFloat = 25
+    private static let systemFillTolerance: CGFloat = 24
+    private static let minimumSystemFillHeightRatio: CGFloat = 0.6
 
     /// Calculate the taskbar frame for a given screen
     static func taskbarFrame(for screen: NSScreen, height: CGFloat = 40) -> NSRect {
@@ -70,7 +72,62 @@ struct ScreenGeometry {
             nearlyEqual(bounds.minY, displayBounds.minY + menuBarInset)
     }
 
+    static func adjustedFrameAvoidingTaskbar(
+        for frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        taskbarHeight: CGFloat
+    ) -> CGRect? {
+        guard resemblesSystemFillWindow(frame: frame, onDisplay: displayBounds) else {
+            return nil
+        }
+
+        let taskbarTop = displayBounds.maxY - taskbarHeight
+        guard frame.maxY > taskbarTop + fullScreenTolerance else {
+            return nil
+        }
+
+        let adjustedHeight = taskbarTop - frame.minY
+        guard adjustedHeight > 100 else {
+            return nil
+        }
+
+        return CGRect(
+            x: frame.minX,
+            y: frame.minY,
+            width: frame.width,
+            height: adjustedHeight
+        )
+    }
+
+    static func resemblesSystemFillWindow(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+        guard frame.height >= displayBounds.height * minimumSystemFillHeightRatio else {
+            return false
+        }
+
+        return resemblesFullWidthFill(frame: frame, onDisplay: displayBounds) ||
+            resemblesHalfWidthFill(frame: frame, onDisplay: displayBounds)
+    }
+
+    private static func resemblesFullWidthFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+        nearlyEqual(frame.minX, displayBounds.minX, tolerance: systemFillTolerance) &&
+            nearlyEqual(frame.width, displayBounds.width, tolerance: systemFillTolerance)
+    }
+
+    private static func resemblesHalfWidthFill(frame: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+        let expectedWidth = displayBounds.width / 2
+        guard nearlyEqual(frame.width, expectedWidth, tolerance: systemFillTolerance) else {
+            return false
+        }
+
+        return nearlyEqual(frame.minX, displayBounds.minX, tolerance: systemFillTolerance) ||
+            nearlyEqual(frame.maxX, displayBounds.maxX, tolerance: systemFillTolerance)
+    }
+
     private static func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat) -> Bool {
-        abs(lhs - rhs) <= fullScreenTolerance
+        nearlyEqual(lhs, rhs, tolerance: fullScreenTolerance)
+    }
+
+    private static func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat) -> Bool {
+        abs(lhs - rhs) <= tolerance
     }
 }
