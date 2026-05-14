@@ -293,8 +293,10 @@ Pinned app launchers in user-defined order. This zone is always visible — it d
 
 **Appearance states:**
 - **Not running:** Greyed-out icon. Click launches the app.
-- **Running, with visible windows on this Space/monitor:** Icon with an underline indicator (a small colored bar below the icon, matching system accent color). Click activates the most recent window. Right-click shows window list for quick switching.
+- **Running, with visible windows on this Space/monitor:** Icon with an underline indicator (a small colored bar below the icon, matching system accent color). Click activates the most recent window.
 - **Running, no visible windows on this Space/monitor:** Icon with a subtle dot indicator (smaller than the underline — indicates the app is alive but has no local windows). Click activates the app, which may switch Spaces to where its windows are.
+
+**Context menu:** Right-click shows a Dock-style app menu. App-specific launcher actions appear first when available (for example, New Window or New Incognito Window), followed by the window list for quick switching, an Options submenu (Remove from DeskBar, Open in Finder, Launch at Startup), then Show All Windows, Hide, and Quit for running apps.
 
 **Ordering:** User-defined, persisted to UserDefaults. Drag-reorderable within the zone.
 
@@ -621,13 +623,14 @@ Create: `LoginItemManager.swift`, `DockManager.swift`, `AppsLauncherButtonView.s
 30. **Launcher Zone — not running:** Pinned launcher icon appears greyed. Click launches the app.
 31. **Launcher Zone — running with local windows:** Icon shows underline indicator. Click activates most recent window.
 32. **Launcher Zone — running, no local windows:** Icon shows dot indicator. Click activates app (may switch Spaces).
-33. **Task Zone — local windows only:** Only windows on the current Space/monitor appear. No windows from other Spaces/monitors.
-34. **Running-App Tray — populated correctly:** An app running with no visible local windows appears in the tray. An app with visible local windows does NOT appear in the tray.
-35. **Running-App Tray — launcher dedup:** A launcher-pinned app with no local windows shows a dot indicator in the Launcher Zone and does NOT appear in the tray.
-36. **Tray-to-Task transition:** Opening a window for a tray app on the current Space removes it from the tray and adds a window button to the Task Zone.
-37. **Task-to-Tray transition:** Closing the last visible local window for a non-launcher app moves it from the Task Zone to the tray (if still running).
-38. **Drag vs. MRU precedence:** Manually dragging a Task Zone window holds its position through subsequent activate events. Non-positioned windows reorder around it. The flag clears on window close or app quit.
-39. **Group expansion:** Clicking a group button expands inline. Individual windows within are activatable, closeable, minimizable. Second click or click-outside collapses.
+33. **Launcher Zone — context menu:** Right-clicking a launcher icon shows app-specific actions when available, a window list when running with AX access, Options > Remove from DeskBar/Open in Finder/Launch at Startup, Show All Windows, Hide, and Quit.
+34. **Task Zone — local windows only:** Only windows on the current Space/monitor appear. No windows from other Spaces/monitors.
+35. **Running-App Tray — populated correctly:** An app running with no visible local windows appears in the tray. An app with visible local windows does NOT appear in the tray.
+36. **Running-App Tray — launcher dedup:** A launcher-pinned app with no local windows shows a dot indicator in the Launcher Zone and does NOT appear in the tray.
+37. **Tray-to-Task transition:** Opening a window for a tray app on the current Space removes it from the tray and adds a window button to the Task Zone.
+38. **Task-to-Tray transition:** Closing the last visible local window for a non-launcher app moves it from the Task Zone to the tray (if still running).
+39. **Drag vs. MRU precedence:** Manually dragging a Task Zone window holds its position through subsequent activate events. Non-positioned windows reorder around it. The flag clears on window close or app quit.
+40. **Group expansion:** Clicking a group button expands inline. Individual windows within are activatable, closeable, minimizable. Second click or click-outside collapses.
 
 ---
 

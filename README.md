@@ -14,7 +14,7 @@ Lightweight, native, no external dependencies. Does not modify any system settin
 
 - **Three-zone layout** — Launcher (pinned apps) | Task Zone (windows) | Running-App Tray
 - **Per-window switching** — click a task button to raise that specific window, not all windows from the app
-- **Dock-style right-click menu** — window list with checkmark on active window, plus Show All Windows, Hide, Quit
+- **Dock-style right-click menus** — task and launcher menus expose windows plus Show All Windows, Hide, Quit, and launcher options
 - **Real-time updates** — windows appear/disappear as you open/close them, no polling lag
 - **Multi-monitor** — taskbar on every display, each showing only that display's windows
 - **Hover thumbnails** — live window previews via ScreenCaptureKit (requires Screen Recording permission)
@@ -66,7 +66,7 @@ tccutil reset Accessibility com.deskbar.app
 | **Right-click** a task button | Dock-style menu: window list, Show All Windows, Hide, Pin, Blacklist, Quit |
 | **Click** the Apps button | Opens the macOS Apps launcher |
 | **Click** a launcher icon | Activates the app (launches if not running) |
-| **Right-click** a launcher icon | Unpin from launcher |
+| **Right-click** a launcher icon | Dock-style menu: app-specific actions, window list, Options, Show All Windows, Hide, Quit |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
 | **Drag** task buttons | Reorder; dragged items hold position |

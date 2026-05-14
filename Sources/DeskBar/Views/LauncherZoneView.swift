@@ -289,6 +289,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     private let unpinHandler: () -> Void
     private let accessibilityService: AccessibilityService
     private let dragConfiguration: TaskButtonDragConfiguration?
+    private let launcherLoginItemManager: LauncherAppLoginItemManager
 
     private let iconView = NSImageView()
     private let dropIndicatorView = NSView()
@@ -317,6 +318,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         settings: TaskbarSettings,
         cachedIcon: NSImage? = nil,
         accessibilityService: AccessibilityService = AccessibilityService(),
+        launcherLoginItemManager: LauncherAppLoginItemManager = LauncherAppLoginItemManager(),
         dragConfiguration: TaskButtonDragConfiguration?,
         unpinHandler: @escaping () -> Void
     ) {
@@ -327,6 +329,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
         self.cachedIcon = cachedIcon
         self.accessibilityService = accessibilityService
         self.dragConfiguration = dragConfiguration
+        self.launcherLoginItemManager = launcherLoginItemManager
         self.unpinHandler = unpinHandler
         super.init(frame: .zero)
 
@@ -618,15 +621,220 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
 
     private func showContextMenu(with event: NSEvent) {
         let menu = NSMenu()
-        let unpinItem = NSMenuItem(title: "Unpin from Launcher", action: #selector(unpinFromLauncher(_:)), keyEquivalent: "")
-        unpinItem.target = self
-        menu.addItem(unpinItem)
+        menu.autoenablesItems = false
+
+        addApplicationActions(to: menu)
+        addWindowItems(to: menu)
+        addOptionsItem(to: menu)
+        addRunningApplicationItems(to: menu)
+
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    private func addApplicationActions(to menu: NSMenu) {
+        let actions = LauncherMenuActionProvider.actions(
+            pinnedApp: pinnedApp,
+            runningApplication: runningApplication
+        )
+        guard !actions.isEmpty else {
+            return
+        }
+
+        for action in actions {
+            let item = NSMenuItem(
+                title: action.title,
+                action: #selector(performLauncherMenuAction(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = action
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+    }
+
+    private func addWindowItems(to menu: NSMenu) {
+        guard AXIsProcessTrusted(), let runningApplication else {
+            return
+        }
+
+        let windows = accessibilityService.enumerateWindows(for: runningApplication)
+        guard !windows.isEmpty else {
+            return
+        }
+
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let focusedWindow = focusedWindow(for: runningApplication)
+
+        for window in windows {
+            let title = normalizedTitle(for: window)
+            let item = NSMenuItem(
+                title: title.isEmpty ? "Untitled" : title,
+                action: #selector(activateWindowFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = window
+            item.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
+            item.image?.size = NSSize(width: 14, height: 14)
+            if runningApplication.processIdentifier == frontmostPID,
+               let focusedWindow,
+               CFEqual(window, focusedWindow) {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+    }
+
+    private func addOptionsItem(to menu: NSMenu) {
+        let optionsItem = NSMenuItem(title: "Options", action: nil, keyEquivalent: "")
+        let optionsMenu = NSMenu()
+
+        let removeItem = NSMenuItem(
+            title: "Remove from DeskBar",
+            action: #selector(unpinFromLauncher(_:)),
+            keyEquivalent: ""
+        )
+        removeItem.target = self
+        optionsMenu.addItem(removeItem)
+
+        let openInFinderItem = NSMenuItem(
+            title: "Open in Finder",
+            action: #selector(openApplicationInFinder(_:)),
+            keyEquivalent: ""
+        )
+        openInFinderItem.target = self
+        openInFinderItem.isEnabled = pinnedApp.applicationURL != nil
+        optionsMenu.addItem(openInFinderItem)
+
+        let launchAtStartupItem = NSMenuItem(
+            title: "Launch at Startup",
+            action: #selector(toggleLaunchAtStartup(_:)),
+            keyEquivalent: ""
+        )
+        launchAtStartupItem.target = self
+        launchAtStartupItem.state = launcherLoginItemManager.isEnabled(
+            bundleIdentifier: pinnedApp.bundleIdentifier
+        ) ? .on : .off
+        optionsMenu.addItem(launchAtStartupItem)
+
+        optionsItem.submenu = optionsMenu
+        menu.addItem(optionsItem)
+    }
+
+    private func addRunningApplicationItems(to menu: NSMenu) {
+        menu.addItem(.separator())
+
+        if runningApplication == nil {
+            let openItem = NSMenuItem(title: "Open", action: #selector(openApplication(_:)), keyEquivalent: "")
+            openItem.target = self
+            menu.addItem(openItem)
+            return
+        }
+
+        let showAllWindowsItem = NSMenuItem(
+            title: "Show All Windows",
+            action: #selector(showAllWindows(_:)),
+            keyEquivalent: ""
+        )
+        showAllWindowsItem.target = self
+        menu.addItem(showAllWindowsItem)
+
+        let hideItem = NSMenuItem(title: "Hide", action: #selector(hideApplication(_:)), keyEquivalent: "")
+        hideItem.target = self
+        menu.addItem(hideItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication(_:)), keyEquivalent: "")
+        quitItem.target = self
+        menu.addItem(quitItem)
+    }
+
+    private func focusedWindow(for application: NSRunningApplication) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        var focusedWindow: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+            let focusedWindow,
+            CFGetTypeID(focusedWindow) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+
+        return unsafeBitCast(focusedWindow, to: AXUIElement.self)
+    }
+
+    @objc
+    private func performLauncherMenuAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? LauncherMenuAction else {
+            return
+        }
+
+        action.perform()
+    }
+
+    @objc
+    private func activateWindowFromMenu(_ sender: NSMenuItem) {
+        guard
+            let runningApplication,
+            let object = sender.representedObject
+        else {
+            return
+        }
+
+        let axWindow = object as! AXUIElement
+        accessibilityService.raiseAndActivate(element: axWindow, app: runningApplication)
     }
 
     @objc
     private func unpinFromLauncher(_ sender: Any?) {
         unpinHandler()
+    }
+
+    @objc
+    private func openApplicationInFinder(_ sender: Any?) {
+        guard let applicationURL = pinnedApp.applicationURL else {
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([applicationURL])
+    }
+
+    @objc
+    private func toggleLaunchAtStartup(_ sender: NSMenuItem) {
+        do {
+            try launcherLoginItemManager.setEnabled(
+                sender.state != .on,
+                bundleIdentifier: pinnedApp.bundleIdentifier
+            )
+        } catch {
+            print("DeskBar: failed to update launcher login item for \(pinnedApp.bundleIdentifier): \(error)")
+        }
+    }
+
+    @objc
+    private func openApplication(_ sender: Any?) {
+        launchApplication()
+    }
+
+    @objc
+    private func showAllWindows(_ sender: Any?) {
+        runningApplication?.unhide()
+        runningApplication?.activate(options: .activateAllWindows)
+    }
+
+    @objc
+    private func hideApplication(_ sender: Any?) {
+        runningApplication?.hide()
+    }
+
+    @objc
+    private func quitApplication(_ sender: Any?) {
+        runningApplication?.terminate()
     }
 
     private func draggingPreviewImage() -> NSImage {
