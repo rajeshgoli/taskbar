@@ -11,6 +11,14 @@ func windowBelongsToDisplayWhenOriginIsContained() {
 }
 
 @Test
+func windowBelongsToDisplayWhenFrameBorderExtendsOutsideDisplay() {
+    let displayBounds = CGRect(x: -3440, y: 0, width: 3440, height: 1440)
+    let windowBounds = CGRect(x: -3441, y: 30, width: 3440, height: 1370)
+
+    #expect(ScreenGeometry.isWindow(bounds: windowBounds, onDisplay: displayBounds))
+}
+
+@Test
 func windowDoesNotBelongToDisplayWhenOriginFallsOutside() {
     let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     let windowBounds = CGRect(x: 1921, y: 10, width: 400, height: 300)

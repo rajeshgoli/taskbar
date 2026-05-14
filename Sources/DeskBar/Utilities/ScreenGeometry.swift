@@ -16,7 +16,7 @@ struct ScreenGeometry {
         )
     }
 
-    /// Find which screen a window belongs to based on its bounds
+    /// Find which screen a window belongs to based on its bounds.
     static func screen(for windowBounds: CGRect) -> NSScreen? {
         NSScreen.screens.first { screen in
             isWindow(bounds: windowBounds, onDisplay: displayBounds(for: screen))
@@ -58,9 +58,14 @@ struct ScreenGeometry {
         max(0, screen.frame.maxY - screen.visibleFrame.maxY)
     }
 
-    /// Check if a window belongs to a specific display using CGDisplayBounds containment.
+    /// Check if a window belongs to a specific display.
+    ///
+    /// CGWindowList can include window frame shadows/borders that extend a point
+    /// outside the owning display. Use the midpoint instead of the origin so a
+    /// maximized window with a slightly negative origin still routes to the
+    /// monitor containing its actual content.
     static func isWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
-        displayBounds.contains(bounds.origin)
+        displayBounds.contains(CGPoint(x: bounds.midX, y: bounds.midY))
     }
 
     static func matchesFullScreenWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
