@@ -46,9 +46,16 @@ enum LauncherApplicationActivator {
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { application, _ in
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { application, error in
+            guard error == nil, let application else {
+                if let error {
+                    print("DeskBar: failed to open launcher application at \(applicationURL.path): \(error)")
+                }
+                return
+            }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                application?.activate(options: .activateAllWindows)
+                application.activate(options: .activateAllWindows)
                 completion()
             }
         }
