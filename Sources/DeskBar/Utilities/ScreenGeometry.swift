@@ -5,6 +5,7 @@ struct ScreenGeometry {
     private static let menuBarInset: CGFloat = 25
     private static let systemFillTolerance: CGFloat = 24
     private static let minimumSystemFillHeightRatio: CGFloat = 0.6
+    private static let frameBorderTolerance: CGFloat = 2
 
     /// Calculate the taskbar frame for a given screen
     static func taskbarFrame(for screen: NSScreen, height: CGFloat = 40) -> NSRect {
@@ -16,11 +17,19 @@ struct ScreenGeometry {
         )
     }
 
-    /// Find which screen a window belongs to based on its bounds
+    /// Find which screen a window belongs to based on its bounds.
     static func screen(for windowBounds: CGRect) -> NSScreen? {
-        NSScreen.screens.first { screen in
-            isWindow(bounds: windowBounds, onDisplay: displayBounds(for: screen))
+        let candidates = NSScreen.screens.map { screen in
+            (screen: screen, displayBounds: displayBounds(for: screen))
         }
+        guard let owningDisplayBounds = owningDisplayBounds(
+            for: windowBounds,
+            among: candidates.map(\.displayBounds)
+        ) else {
+            return nil
+        }
+
+        return candidates.first { $0.displayBounds == owningDisplayBounds }?.screen
     }
 
     /// Get the main display bounds for CGWindowList filtering
@@ -58,9 +67,39 @@ struct ScreenGeometry {
         max(0, screen.frame.maxY - screen.visibleFrame.maxY)
     }
 
-    /// Check if a window belongs to a specific display using CGDisplayBounds containment.
+    /// Check if a window belongs to a specific display.
+    ///
+    /// CGWindowList can include frame shadows/borders that extend a point
+    /// outside the owning display. Preserve origin-based routing for normal and
+    /// partially off-screen windows, then fall back to midpoint routing only
+    /// when the origin is within the frame-border tolerance of a display that
+    /// did not already win by origin.
     static func isWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
-        displayBounds.contains(bounds.origin)
+        let activeDisplayBounds = NSScreen.screens.map { ScreenGeometry.displayBounds(for: $0) }
+        let candidates = activeDisplayBounds.contains(displayBounds) ? activeDisplayBounds : [displayBounds]
+        return owningDisplayBounds(for: bounds, among: candidates) == displayBounds
+    }
+
+    static func owningDisplayBounds(for windowBounds: CGRect, among displayBoundsCandidates: [CGRect]) -> CGRect? {
+        if let originMatch = displayBoundsCandidates.first(where: { $0.contains(windowBounds.origin) }) {
+            return originMatch
+        }
+
+        return displayBoundsCandidates.first { displayBounds in
+            isFrameBorderFallbackWindow(bounds: windowBounds, onDisplay: displayBounds)
+        }
+    }
+
+    private static func isFrameBorderFallbackWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
+        let expandedDisplayBounds = displayBounds.insetBy(
+            dx: -frameBorderTolerance,
+            dy: -frameBorderTolerance
+        )
+        guard expandedDisplayBounds.contains(bounds.origin) else {
+            return false
+        }
+
+        return displayBounds.contains(CGPoint(x: bounds.midX, y: bounds.midY))
     }
 
     static func matchesFullScreenWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
