@@ -5,6 +5,7 @@ struct ScreenGeometry {
     private static let menuBarInset: CGFloat = 25
     private static let systemFillTolerance: CGFloat = 24
     private static let minimumSystemFillHeightRatio: CGFloat = 0.6
+    private static let frameBorderTolerance: CGFloat = 2
 
     /// Calculate the taskbar frame for a given screen
     static func taskbarFrame(for screen: NSScreen, height: CGFloat = 40) -> NSRect {
@@ -60,12 +61,24 @@ struct ScreenGeometry {
 
     /// Check if a window belongs to a specific display.
     ///
-    /// CGWindowList can include window frame shadows/borders that extend a point
-    /// outside the owning display. Use the midpoint instead of the origin so a
-    /// maximized window with a slightly negative origin still routes to the
-    /// monitor containing its actual content.
+    /// CGWindowList can include frame shadows/borders that extend a point
+    /// outside the owning display. Preserve origin-based routing for normal and
+    /// partially off-screen windows, then fall back to midpoint routing only
+    /// when the origin is within the frame-border tolerance of the display.
     static func isWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {
-        displayBounds.contains(CGPoint(x: bounds.midX, y: bounds.midY))
+        if displayBounds.contains(bounds.origin) {
+            return true
+        }
+
+        let expandedDisplayBounds = displayBounds.insetBy(
+            dx: -frameBorderTolerance,
+            dy: -frameBorderTolerance
+        )
+        guard expandedDisplayBounds.contains(bounds.origin) else {
+            return false
+        }
+
+        return displayBounds.contains(CGPoint(x: bounds.midX, y: bounds.midY))
     }
 
     static func matchesFullScreenWindow(bounds: CGRect, onDisplay displayBounds: CGRect) -> Bool {

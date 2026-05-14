@@ -19,6 +19,14 @@ func windowBelongsToDisplayWhenFrameBorderExtendsOutsideDisplay() {
 }
 
 @Test
+func windowBelongsToDisplayWhenMidpointFallsOffscreen() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 1800, y: 40, width: 600, height: 700)
+
+    #expect(ScreenGeometry.isWindow(bounds: windowBounds, onDisplay: displayBounds))
+}
+
+@Test
 func windowDoesNotBelongToDisplayWhenOriginFallsOutside() {
     let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     let windowBounds = CGRect(x: 1921, y: 10, width: 400, height: 300)
