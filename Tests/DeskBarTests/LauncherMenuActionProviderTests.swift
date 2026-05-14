@@ -34,3 +34,47 @@ func launcherMenuActionProviderUsesFinderFallbackAction() {
 func launcherMenuActionProviderOmitsFallbackActionsForUnknownApps() {
     #expect(LauncherMenuActionProvider.fallbackActionTitles(bundleIdentifier: "com.example.Unknown") == [])
 }
+
+@Test
+func launcherMenuActionProviderMatchesKnownCommandsByAXShortcutAttributes() {
+    #expect(
+        LauncherMenuActionProvider.launcherActionIdentifier(
+            bundleIdentifier: "com.google.Chrome",
+            commandCharacter: "n",
+            commandModifiers: 0,
+            title: "Localized window title"
+        ) == "newWindow"
+    )
+    #expect(
+        LauncherMenuActionProvider.launcherActionIdentifier(
+            bundleIdentifier: "com.google.Chrome",
+            commandCharacter: "N",
+            commandModifiers: 1,
+            title: "Localized private title"
+        ) == "newPrivateWindow"
+    )
+}
+
+@Test
+func launcherMenuActionProviderDoesNotTreatFinderNewFolderAsLauncherAction() {
+    #expect(
+        LauncherMenuActionProvider.launcherActionIdentifier(
+            bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
+            commandCharacter: "N",
+            commandModifiers: 1,
+            title: "New Folder"
+        ) == nil
+    )
+}
+
+@Test
+func launcherMenuActionProviderStillMatchesEnglishTitlesWhenShortcutsAreCustomized() {
+    #expect(
+        LauncherMenuActionProvider.launcherActionIdentifier(
+            bundleIdentifier: "com.apple.Safari",
+            commandCharacter: "T",
+            commandModifiers: 0,
+            title: "New Private Window"
+        ) == "newPrivateWindow"
+    )
+}
