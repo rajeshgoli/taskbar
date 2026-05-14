@@ -26,6 +26,41 @@ enum LauncherApplicationActivator {
         launch(bundleIdentifier: bundleIdentifier, applicationURL: applicationURL ?? application.bundleURL)
     }
 
+    static func activateOrLaunchForKeyboardShortcut(
+        _ application: NSRunningApplication?,
+        bundleIdentifier: String,
+        completion: @escaping () -> Void
+    ) {
+        if let application {
+            application.unhide()
+            _ = application.activate(options: .activateAllWindows)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                completion()
+            }
+            return
+        }
+
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { application, error in
+            guard error == nil, let application else {
+                if let error {
+                    print("DeskBar: failed to open launcher application at \(applicationURL.path): \(error)")
+                }
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                application.activate(options: .activateAllWindows)
+                completion()
+            }
+        }
+    }
+
     static func openFinderWindow() {
         let homeURL = FileManager.default.homeDirectoryForCurrentUser
 
