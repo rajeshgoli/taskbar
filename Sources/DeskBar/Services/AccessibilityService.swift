@@ -7,6 +7,10 @@ final class AccessibilityService {
     typealias GetProcessForPIDFunc = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
     typealias SetFrontProcessWithOptionsFunc = @convention(c) (UnsafePointer<ProcessSerialNumber>, OptionBits) -> OSStatus
 
+    private struct PreservedDisplayWindow {
+        let element: AXUIElement
+    }
+
     private let frameMatchTolerance: CGFloat = 2
     private var _axGetWindow: AXUIElementGetWindowFunc?
     private var _getProcessForPID: GetProcessForPIDFunc?
@@ -71,6 +75,7 @@ final class AccessibilityService {
 
     @discardableResult
     func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
+        let preservedDisplayWindows = topmostWindowsOnOtherDisplays(excludingDisplayFor: element)
         let didFocus = focusAndRaise(element: element, app: app)
 
         if app.isActive && isTopmostVisibleWindowOnDisplay(element: element, app: app) {
@@ -84,6 +89,16 @@ final class AccessibilityService {
                 return
             }
 
+            self?.restorePreservedDisplayWindows(preservedDisplayWindows)
+            _ = self?.focusAndRaise(element: element, app: app)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            guard !app.isTerminated else {
+                return
+            }
+
+            self?.restorePreservedDisplayWindows(preservedDisplayWindows)
             _ = self?.focusAndRaise(element: element, app: app)
         }
 
@@ -107,6 +122,64 @@ final class AccessibilityService {
             &processSerialNumber,
             OptionBits(kSetFrontProcessFrontWindowOnly)
         ) == noErr
+    }
+
+    private func topmostWindowsOnOtherDisplays(excludingDisplayFor element: AXUIElement) -> [PreservedDisplayWindow] {
+        guard
+            let targetFrame = frame(for: element),
+            let targetScreen = ScreenGeometry.screen(for: targetFrame),
+            let targetDisplayID = ScreenGeometry.displayID(for: targetScreen),
+            let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else {
+            return []
+        }
+
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let applicationsByPID = Dictionary(
+            uniqueKeysWithValues: NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .map { ($0.processIdentifier, $0) }
+        )
+        var seenDisplayIDs = Set<CGDirectDisplayID>()
+        var preservedWindows: [PreservedDisplayWindow] = []
+
+        for windowInfo in windowList {
+            guard
+                let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
+                let pid = windowInfo[kCGWindowOwnerPID as String] as? pid_t,
+                pid != currentPID,
+                let app = applicationsByPID[pid],
+                let layer = windowInfo[kCGWindowLayer as String] as? Int,
+                layer == 0,
+                let alpha = windowInfo[kCGWindowAlpha as String] as? Double,
+                alpha > 0,
+                let boundsDictionary = windowInfo[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
+                bounds.width * bounds.height >= 100,
+                let screen = ScreenGeometry.screen(for: bounds),
+                let displayID = ScreenGeometry.displayID(for: screen),
+                displayID != targetDisplayID,
+                !seenDisplayIDs.contains(displayID),
+                let element = windowElement(with: windowID, app: app)
+            else {
+                continue
+            }
+
+            preservedWindows.append(PreservedDisplayWindow(element: element))
+            seenDisplayIDs.insert(displayID)
+        }
+
+        return preservedWindows
+    }
+
+    private func restorePreservedDisplayWindows(_ windows: [PreservedDisplayWindow]) {
+        for window in windows {
+            _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+        }
+    }
+
+    private func windowElement(with windowID: CGWindowID, app: NSRunningApplication) -> AXUIElement? {
+        enumerateWindows(for: app).first { getWindowID(for: $0) == windowID }
     }
 
     private func isTopmostVisibleWindowOnDisplay(
