@@ -58,6 +58,11 @@ final class AccessibilityService {
     @discardableResult
     func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
         let didFocus = focusAndRaise(element: element, app: app)
+
+        if isTopmostVisibleWindowOnDisplay(element: element, app: app) {
+            return didFocus
+        }
+
         let didActivate = app.activate()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -69,6 +74,51 @@ final class AccessibilityService {
         }
 
         return didFocus || didActivate
+    }
+
+    private func isTopmostVisibleWindowOnDisplay(
+        element: AXUIElement,
+        app: NSRunningApplication
+    ) -> Bool {
+        guard
+            let targetWindowID = getWindowID(for: element),
+            let targetFrame = frame(for: element),
+            let targetScreen = ScreenGeometry.screen(for: targetFrame),
+            let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else {
+            return false
+        }
+
+        let targetDisplayBounds = ScreenGeometry.displayBounds(for: targetScreen)
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let regularPIDs = Set(
+            NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .map(\.processIdentifier)
+        )
+
+        for windowInfo in windowList {
+            guard
+                let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
+                let pid = windowInfo[kCGWindowOwnerPID as String] as? pid_t,
+                pid != currentPID,
+                regularPIDs.contains(pid),
+                let layer = windowInfo[kCGWindowLayer as String] as? Int,
+                layer == 0,
+                let alpha = windowInfo[kCGWindowAlpha as String] as? Double,
+                alpha > 0,
+                let boundsDictionary = windowInfo[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
+                bounds.width * bounds.height >= 100,
+                ScreenGeometry.isWindow(bounds: bounds, onDisplay: targetDisplayBounds)
+            else {
+                continue
+            }
+
+            return windowID == targetWindowID
+        }
+
+        return false
     }
 
     @discardableResult
