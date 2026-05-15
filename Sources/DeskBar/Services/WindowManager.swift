@@ -208,6 +208,19 @@ final class WindowManager: ObservableObject {
         return scopedWindows.filter { visibleWindowPIDs.contains($0.pid) }
     }
 
+    func taskbarZone(for window: WindowInfo, on screen: NSScreen) -> TaskbarWindowZone {
+        guard let bounds = bounds(for: window) else {
+            return .neutral
+        }
+
+        return ScreenGeometry.taskbarZone(
+            for: bounds,
+            onDisplay: ScreenGeometry.displayBounds(for: screen),
+            topInset: ScreenGeometry.topInset(for: screen),
+            taskbarHeight: taskbarHeight
+        )
+    }
+
     func trayApplications(on screen: NSScreen) -> [NSRunningApplication] {
         let displayBounds = ScreenGeometry.displayBounds(for: screen)
         let scopedWindows = windows(onDisplay: displayBounds)
