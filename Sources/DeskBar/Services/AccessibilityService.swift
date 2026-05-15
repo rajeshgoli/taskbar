@@ -152,7 +152,7 @@ final class AccessibilityService {
         return nil
     }
 
-    private func frame(for element: AXUIElement) -> CGRect? {
+    func frame(for element: AXUIElement) -> CGRect? {
         guard let position = cgPointAttribute(
             for: element,
             attribute: kAXPositionAttribute as String
@@ -165,6 +165,47 @@ final class AccessibilityService {
         }
 
         return CGRect(origin: position, size: size)
+    }
+
+    func isFullScreen(element: AXUIElement) -> Bool {
+        guard let value = copyAttributeValue(
+            for: element,
+            attribute: "AXFullScreen"
+        ) else {
+            return false
+        }
+
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+
+        return false
+    }
+
+    @discardableResult
+    func setFrame(_ frame: CGRect, for element: AXUIElement) -> Bool {
+        var position = frame.origin
+        var size = frame.size
+
+        guard
+            let positionValue = AXValueCreate(.cgPoint, &position),
+            let sizeValue = AXValueCreate(.cgSize, &size)
+        else {
+            return false
+        }
+
+        let positionError = AXUIElementSetAttributeValue(
+            element,
+            kAXPositionAttribute as CFString,
+            positionValue
+        )
+        let sizeError = AXUIElementSetAttributeValue(
+            element,
+            kAXSizeAttribute as CFString,
+            sizeValue
+        )
+
+        return positionError == .success && sizeError == .success
     }
 
     private func cgPointAttribute(for element: AXUIElement, attribute: String) -> CGPoint? {
