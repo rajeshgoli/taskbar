@@ -4,15 +4,29 @@ import Darwin
 
 final class AccessibilityService {
     typealias AXUIElementGetWindowFunc = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    typealias GetProcessForPIDFunc = @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    typealias SetFrontProcessWithOptionsFunc = @convention(c) (UnsafePointer<ProcessSerialNumber>, OptionBits) -> OSStatus
 
     private let frameMatchTolerance: CGFloat = 2
     private var _axGetWindow: AXUIElementGetWindowFunc?
+    private var _getProcessForPID: GetProcessForPIDFunc?
+    private var _setFrontProcessWithOptions: SetFrontProcessWithOptionsFunc?
 
     init() {
-        if let sym = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
+        let symbolHandle = dlopen(nil, RTLD_LAZY)
+
+        if let sym = dlsym(symbolHandle, "_AXUIElementGetWindow") {
             _axGetWindow = unsafeBitCast(sym, to: AXUIElementGetWindowFunc.self)
         } else {
             print("DeskBar: _AXUIElementGetWindow unavailable, using frame-matching fallback. Thumbnail accuracy may be reduced.")
+        }
+
+        if let sym = dlsym(symbolHandle, "GetProcessForPID") {
+            _getProcessForPID = unsafeBitCast(sym, to: GetProcessForPIDFunc.self)
+        }
+
+        if let sym = dlsym(symbolHandle, "SetFrontProcessWithOptions") {
+            _setFrontProcessWithOptions = unsafeBitCast(sym, to: SetFrontProcessWithOptionsFunc.self)
         }
     }
 
@@ -63,7 +77,7 @@ final class AccessibilityService {
             return didFocus
         }
 
-        let didActivate = app.activate()
+        let didActivate = activateFrontWindowOnly(app: app) || app.activate()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard !app.isTerminated else {
@@ -74,6 +88,25 @@ final class AccessibilityService {
         }
 
         return didFocus || didActivate
+    }
+
+    private func activateFrontWindowOnly(app: NSRunningApplication) -> Bool {
+        guard
+            let getProcessForPID = _getProcessForPID,
+            let setFrontProcessWithOptions = _setFrontProcessWithOptions
+        else {
+            return false
+        }
+
+        var processSerialNumber = ProcessSerialNumber(highLongOfPSN: 0, lowLongOfPSN: 0)
+        guard getProcessForPID(app.processIdentifier, &processSerialNumber) == noErr else {
+            return false
+        }
+
+        return setFrontProcessWithOptions(
+            &processSerialNumber,
+            OptionBits(kSetFrontProcessFrontWindowOnly)
+        ) == noErr
     }
 
     private func isTopmostVisibleWindowOnDisplay(
@@ -130,14 +163,6 @@ final class AccessibilityService {
             appElement,
             kAXFocusedWindowAttribute as CFString,
             element
-        ) == .success {
-            didFocus = true
-        }
-
-        if AXUIElementSetAttributeValue(
-            appElement,
-            kAXFrontmostAttribute as CFString,
-            kCFBooleanTrue
         ) == .success {
             didFocus = true
         }
