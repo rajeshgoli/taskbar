@@ -52,6 +52,30 @@ func displayMappingFallsBackToUniqueResolutionAndScaleWhenUUIDIsUnavailable() {
 }
 
 @Test
+func displayMappingFallsBackToUniqueResolutionAndScaleWhenCurrentUUIDExists() {
+    let captured = WindowLayoutDisplaySnapshot(
+        displayID: 1,
+        uuidString: nil,
+        bounds: CGRect(x: 0, y: 0, width: 3440, height: 1440),
+        scale: 1,
+        resolution: CGSize(width: 3440, height: 1440),
+        isMain: false
+    )
+    let current = WindowLayoutDisplaySnapshot(
+        displayID: 7,
+        uuidString: "display-current",
+        bounds: CGRect(x: -3440, y: 0, width: 3440, height: 1440),
+        scale: 1,
+        resolution: CGSize(width: 3440, height: 1440),
+        isMain: false
+    )
+
+    let result = WindowLayoutSnapshotManager.currentDisplay(for: captured, in: [current])
+
+    #expect(result == current)
+}
+
+@Test
 func displayMappingRejectsAmbiguousFallbackMatches() {
     let captured = WindowLayoutDisplaySnapshot(
         displayID: 1,

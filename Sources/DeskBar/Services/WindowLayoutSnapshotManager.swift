@@ -255,8 +255,7 @@ final class WindowLayoutSnapshotManager: ObservableObject {
         }
 
         let fallbackMatches = currentDisplays.filter {
-            $0.uuidString == nil &&
-                $0.resolution == capturedDisplay.resolution &&
+            $0.resolution == capturedDisplay.resolution &&
                 $0.scale == capturedDisplay.scale
         }
 

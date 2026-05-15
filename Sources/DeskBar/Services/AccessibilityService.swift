@@ -59,7 +59,7 @@ final class AccessibilityService {
     func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
         let didFocus = focusAndRaise(element: element, app: app)
 
-        if isTopmostVisibleWindowOnDisplay(element: element, app: app) {
+        if app.isActive && isTopmostVisibleWindowOnDisplay(element: element, app: app) {
             return didFocus
         }
 
@@ -130,6 +130,14 @@ final class AccessibilityService {
             appElement,
             kAXFocusedWindowAttribute as CFString,
             element
+        ) == .success {
+            didFocus = true
+        }
+
+        if AXUIElementSetAttributeValue(
+            appElement,
+            kAXFrontmostAttribute as CFString,
+            kCFBooleanTrue
         ) == .success {
             didFocus = true
         }
