@@ -227,13 +227,19 @@ final class WindowLayoutSnapshotManager: ObservableObject {
         currentDisplays: [WindowLayoutDisplaySnapshot]
     ) -> [String: WindowLayoutDisplaySnapshot]? {
         var mapping: [String: WindowLayoutDisplaySnapshot] = [:]
+        var mappedCurrentDisplayIDs = Set<CGDirectDisplayID>()
 
         for capturedDisplay in capturedDisplays {
             guard let currentDisplay = currentDisplay(for: capturedDisplay, in: currentDisplays) else {
                 return nil
             }
 
+            guard !mappedCurrentDisplayIDs.contains(currentDisplay.displayID) else {
+                return nil
+            }
+
             mapping[capturedDisplay.displayKey] = currentDisplay
+            mappedCurrentDisplayIDs.insert(currentDisplay.displayID)
         }
 
         return mapping

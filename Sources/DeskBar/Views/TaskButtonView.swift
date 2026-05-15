@@ -704,10 +704,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
         guard let menuItem = sender as? NSMenuItem,
               let obj = menuItem.representedObject else { return }
         let axWindow = obj as! AXUIElement
-        let appElement = AXUIElementCreateApplication(windowInfo.pid)
-        _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, axWindow)
-        _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-        owningApplication?.activate()
+        if let owningApplication {
+            accessibilityService.raiseAndActivate(element: axWindow, app: owningApplication)
+        }
     }
 
     @objc

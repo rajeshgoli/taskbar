@@ -84,6 +84,41 @@ func displayMappingRejectsAmbiguousFallbackMatches() {
 }
 
 @Test
+func mappedDisplaysRejectsManyToOneFallbackMatches() {
+    let firstCaptured = WindowLayoutDisplaySnapshot(
+        displayID: 1,
+        uuidString: nil,
+        bounds: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+        scale: 2,
+        resolution: CGSize(width: 1920, height: 1080),
+        isMain: true
+    )
+    let secondCaptured = WindowLayoutDisplaySnapshot(
+        displayID: 2,
+        uuidString: nil,
+        bounds: CGRect(x: 1920, y: 0, width: 1920, height: 1080),
+        scale: 2,
+        resolution: CGSize(width: 1920, height: 1080),
+        isMain: false
+    )
+    let onlyCurrent = WindowLayoutDisplaySnapshot(
+        displayID: 9,
+        uuidString: nil,
+        bounds: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+        scale: 2,
+        resolution: CGSize(width: 1920, height: 1080),
+        isMain: true
+    )
+
+    let result = WindowLayoutSnapshotManager.mappedDisplays(
+        capturedDisplays: [firstCaptured, secondCaptured],
+        currentDisplays: [onlyCurrent]
+    )
+
+    #expect(result == nil)
+}
+
+@Test
 func relativeFrameRoundTripsAcrossEquivalentDisplayBounds() {
     let originalDisplay = CGRect(x: -3440, y: 0, width: 3440, height: 1440)
     let currentDisplay = CGRect(x: 0, y: 0, width: 3440, height: 1440)

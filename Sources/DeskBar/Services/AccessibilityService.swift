@@ -55,9 +55,40 @@ final class AccessibilityService {
         return windows.filter(isEligibleWindow)
     }
 
-    func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) {
-        _ = AXUIElementPerformAction(element, kAXRaiseAction as CFString)
-        _ = app.activate()
+    @discardableResult
+    func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var didFocus = false
+
+        if AXUIElementSetAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            element
+        ) == .success {
+            didFocus = true
+        }
+
+        if AXUIElementSetAttributeValue(
+            element,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+        ) == .success {
+            didFocus = true
+        }
+
+        if AXUIElementSetAttributeValue(
+            element,
+            kAXFocusedAttribute as CFString,
+            kCFBooleanTrue
+        ) == .success {
+            didFocus = true
+        }
+
+        if AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success {
+            didFocus = true
+        }
+
+        return didFocus
     }
 
     func minimize(element: AXUIElement) {

@@ -16,6 +16,7 @@ final class TaskbarContentView: NSView {
     private let launcherZoneView: LauncherZoneView
     private let runningAppTrayView: RunningAppTrayView
     private let axGetWindow: AXUIElementGetWindowFunc?
+    private let accessibilityService = AccessibilityService()
 
     private let rootStackView = NSStackView()
     private let bannerButton = NSButton()
@@ -1007,15 +1008,8 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        // Raise the specific window via AX, then activate the app
         if let windowElement = matchingWindowElement(for: windowInfo, application: application) {
-            // Set as the app's main/focused window first
-            let appElement = AXUIElementCreateApplication(application.processIdentifier)
-            _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, windowElement)
-            // Raise to front of app's window stack
-            _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
-            // Activate the app to bring it forward (the raised window is now on top)
-            application.activate()
+            accessibilityService.raiseAndActivate(element: windowElement, app: application)
         } else {
             // Fallback: no AX element found, activate all windows
             application.activate(options: .activateAllWindows)
@@ -1033,8 +1027,7 @@ final class TaskbarContentView: NSView {
             kAXMinimizedAttribute as CFString,
             kCFBooleanFalse
         )
-        _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
-        application.activate(options: .activateAllWindows)
+        accessibilityService.raiseAndActivate(element: windowElement, app: application)
     }
 
     private func matchingWindowElement(
