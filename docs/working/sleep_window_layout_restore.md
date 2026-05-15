@@ -32,7 +32,6 @@ No always-visible taskbar button is added. A status-menu command keeps the taskb
 DeskBar creates a snapshot on:
 
 - `NSWorkspace.willSleepNotification`
-- `NSWorkspace.screensDidSleepNotification`
 - The final debounced display-configuration state immediately before sleep, when available
 
 Only the newest snapshot is retained. It is stored in memory and persisted to:

@@ -287,8 +287,7 @@ final class WindowLayoutSnapshotManager: ObservableObject {
 
     private func installObservers() {
         let sleepNotifications: [Notification.Name] = [
-            NSWorkspace.willSleepNotification,
-            NSWorkspace.screensDidSleepNotification
+            NSWorkspace.willSleepNotification
         ]
         sleepNotifications.forEach { name in
             observers.append(
