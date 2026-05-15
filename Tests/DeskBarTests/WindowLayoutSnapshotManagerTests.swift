@@ -210,6 +210,55 @@ func liveWindowMatchingRejectsAmbiguousTitleMatches() {
     #expect(result == nil)
 }
 
+@Test
+func liveWindowMatchingRejectsFallbackWhenDisabled() {
+    let snapshot = windowSnapshot(
+        pid: 11,
+        cgWindowID: nil,
+        bundleIdentifier: "com.example.app",
+        title: "Original"
+    )
+    let titleMatch = liveWindow(
+        pid: 22,
+        cgWindowID: 100,
+        bundleIdentifier: "com.example.app",
+        title: "Original"
+    )
+
+    let result = WindowLayoutSnapshotManager.matchingLiveWindow(
+        for: snapshot,
+        in: [titleMatch],
+        allowsFallback: false
+    )
+
+    #expect(result == nil)
+}
+
+@Test
+func liveWindowMatchingAllowsWindowIDWhenFallbackIsDisabled() {
+    let snapshot = windowSnapshot(
+        pid: 11,
+        cgWindowID: 42,
+        bundleIdentifier: "com.example.app",
+        title: "Original"
+    )
+    let idMatch = liveWindow(
+        pid: 11,
+        cgWindowID: 42,
+        bundleIdentifier: "com.example.app",
+        title: "Renamed"
+    )
+
+    let result = WindowLayoutSnapshotManager.matchingLiveWindow(
+        for: snapshot,
+        in: [idMatch],
+        allowsFallback: false
+    )
+
+    #expect(result?.pid == 11)
+    #expect(result?.cgWindowID == 42)
+}
+
 private func windowSnapshot(
     pid: pid_t,
     cgWindowID: CGWindowID?,

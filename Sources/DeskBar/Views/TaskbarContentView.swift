@@ -597,8 +597,12 @@ final class TaskbarContentView: NSView {
         leftTaskZoneStackView.isHidden = !hasLeftViews
         neutralTaskZoneStackView.isHidden = !hasNeutralViews
         rightTaskZoneStackView.isHidden = !hasRightViews
-        leftTaskZoneSeparatorView.isHidden = !(hasLeftViews && (hasNeutralViews || hasRightViews))
-        rightTaskZoneSeparatorView.isHidden = !(hasRightViews && (hasNeutralViews || hasLeftViews))
+
+        let separatesLeftAndNeutral = hasLeftViews && hasNeutralViews
+        let separatesNeutralAndRight = hasNeutralViews && hasRightViews
+        let separatesLeftAndRight = hasLeftViews && hasRightViews && !hasNeutralViews
+        leftTaskZoneSeparatorView.isHidden = !(separatesLeftAndNeutral || separatesLeftAndRight)
+        rightTaskZoneSeparatorView.isHidden = !separatesNeutralAndRight
     }
 
     private func taskbarZone(for item: TaskZoneItem, on screen: NSScreen?) -> TaskbarWindowZone {

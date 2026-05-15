@@ -180,6 +180,12 @@ final class WindowLayoutSnapshotManager: ObservableObject {
             return
         }
 
+        if manual {
+            pendingAutomaticRestoreUntil = nil
+            restoreWorkItem?.cancel()
+            restoreWorkItem = nil
+        }
+
         restore(snapshot: latestSnapshot, manual: manual)
     }
 
@@ -264,11 +270,16 @@ final class WindowLayoutSnapshotManager: ObservableObject {
 
     static func matchingLiveWindow(
         for snapshot: WindowLayoutWindowSnapshot,
-        in liveWindows: [WindowLayoutLiveWindow]
+        in liveWindows: [WindowLayoutLiveWindow],
+        allowsFallback: Bool = true
     ) -> WindowLayoutLiveWindow? {
         if let cgWindowID = snapshot.cgWindowID,
            let match = liveWindows.first(where: { $0.pid == snapshot.pid && $0.cgWindowID == cgWindowID }) {
             return match
+        }
+
+        guard allowsFallback else {
+            return nil
         }
 
         if let bundleIdentifier = snapshot.bundleIdentifier, !snapshot.title.isEmpty {
@@ -405,7 +416,11 @@ final class WindowLayoutSnapshotManager: ObservableObject {
                 !capturedWindow.isHidden,
                 !capturedWindow.isFullScreen,
                 let currentDisplay = displayMapping[capturedWindow.displayKey],
-                let liveWindow = Self.matchingLiveWindow(for: capturedWindow, in: liveWindows),
+                let liveWindow = Self.matchingLiveWindow(
+                    for: capturedWindow,
+                    in: liveWindows,
+                    allowsFallback: manual
+                ),
                 !liveWindow.isMinimized,
                 !liveWindow.isHidden,
                 !liveWindow.isFullScreen,
