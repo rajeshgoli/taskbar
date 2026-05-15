@@ -57,6 +57,22 @@ final class AccessibilityService {
 
     @discardableResult
     func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
+        let didFocus = focusAndRaise(element: element, app: app)
+        let didActivate = app.activate()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard !app.isTerminated else {
+                return
+            }
+
+            _ = self?.focusAndRaise(element: element, app: app)
+        }
+
+        return didFocus || didActivate
+    }
+
+    @discardableResult
+    private func focusAndRaise(element: AXUIElement, app: NSRunningApplication) -> Bool {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var didFocus = false
 
