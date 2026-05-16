@@ -210,6 +210,7 @@ final class TaskbarPanel: NSPanel {
         let usesGlassChrome = settings.layoutMode == .compactGlass || settings.layoutMode == .fullWidthGlass
         visualEffectView.layer?.cornerRadius = usesGlassChrome ? min(frame.height / 2, 18) : 0
         visualEffectView.layer?.masksToBounds = usesGlassChrome
+        visualEffectView.shadow = usesGlassChrome ? Self.glassShadow() : nil
     }
 
     private static func framesApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
@@ -217,6 +218,14 @@ final class TaskbarPanel: NSPanel {
             abs(lhs.origin.y - rhs.origin.y) < 0.5 &&
             abs(lhs.size.width - rhs.size.width) < 0.5 &&
             abs(lhs.size.height - rhs.size.height) < 0.5
+    }
+
+    private static func glassShadow() -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowBlurRadius = 16
+        shadow.shadowOffset = NSSize(width: 0, height: 2)
+        return shadow
     }
 }
 

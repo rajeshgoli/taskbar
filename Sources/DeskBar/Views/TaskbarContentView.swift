@@ -403,6 +403,27 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        settings.$titleFontSize
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        settings.$maxTaskWidth
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        settings.$showTitles
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
         let workspaceNotifications = NSWorkspace.shared.notificationCenter
         let notificationNames: [Notification.Name] = [
             NSWorkspace.didActivateApplicationNotification,
