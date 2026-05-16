@@ -10,9 +10,10 @@ final class WindowSwitcherService {
     private let thumbnailService: ThumbnailService
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var overlayPanels: [CGDirectDisplayID: WindowSwitcherPanel] = [:]
+    private var overlayPanel: WindowSwitcherPanel?
     private var sessionWindows: [WindowInfo] = []
     private var selectedIndex: Int?
+    private var sessionScreen: NSScreen?
 
     init(
         windowManager: WindowManager,
@@ -216,6 +217,7 @@ final class WindowSwitcherService {
                 from: windowManager.windows,
                 zOrderedWindowIDs: Self.zOrderedWindowIDs()
             )
+            sessionScreen = Self.screenContainingMouse() ?? NSScreen.main ?? NSScreen.screens.first
             selectedIndex = nil
         }
 
@@ -246,9 +248,11 @@ final class WindowSwitcherService {
             selectedWindow = nil
         }
 
-        closeOverlayPanels()
+        overlayPanel?.closeSwitcher()
+        overlayPanel = nil
         sessionWindows.removeAll()
         selectedIndex = nil
+        sessionScreen = nil
 
         if let selectedWindow {
             activate(window: selectedWindow)
@@ -270,35 +274,18 @@ final class WindowSwitcherService {
                 icon: window.icon
             )
         }
-        let screens = NSScreen.screens
-        guard !screens.isEmpty else {
-            return
-        }
+        let screen = sessionScreen ?? Self.screenContainingMouse() ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen else { return }
 
-        var visibleDisplayIDs = Set<CGDirectDisplayID>()
-        for (fallbackIndex, screen) in screens.enumerated() {
-            let displayID = ScreenGeometry.displayID(for: screen) ?? CGDirectDisplayID(1_000_000 + fallbackIndex)
-            visibleDisplayIDs.insert(displayID)
-
-            let panel = overlayPanels[displayID] ?? WindowSwitcherPanel(screen: screen)
-            overlayPanels[displayID] = panel
-            panel.update(
-                screen: screen,
-                items: items,
-                selectedIndex: selectedIndex,
-                thumbnailService: thumbnailService
-            )
-            panel.orderFrontRegardless()
-        }
-
-        for displayID in Set(overlayPanels.keys).subtracting(visibleDisplayIDs) {
-            overlayPanels.removeValue(forKey: displayID)?.closeSwitcher()
-        }
-    }
-
-    private func closeOverlayPanels() {
-        overlayPanels.values.forEach { $0.closeSwitcher() }
-        overlayPanels.removeAll()
+        let panel = overlayPanel ?? WindowSwitcherPanel(screen: screen)
+        overlayPanel = panel
+        panel.update(
+            screen: screen,
+            items: items,
+            selectedIndex: selectedIndex,
+            thumbnailService: thumbnailService
+        )
+        panel.orderFrontRegardless()
     }
 
     private func activate(window: WindowInfo) {
@@ -339,6 +326,13 @@ final class WindowSwitcherService {
             }
 
             return windowID
+        }
+    }
+
+    private static func screenContainingMouse() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { screen in
+            screen.frame.contains(mouseLocation)
         }
     }
 }
