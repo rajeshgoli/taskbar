@@ -1,16 +1,20 @@
 import AppKit
+import ApplicationServices
 
 final class TrayIconView: NSView {
     private let application: NSRunningApplication
     private let pinnedAppManager: PinnedAppManager
+    private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
 
     init(
         application: NSRunningApplication,
-        pinnedAppManager: PinnedAppManager
+        pinnedAppManager: PinnedAppManager,
+        accessibilityService: AccessibilityService = AccessibilityService()
     ) {
         self.application = application
         self.pinnedAppManager = pinnedAppManager
+        self.accessibilityService = accessibilityService
         super.init(frame: .zero)
 
         translatesAutoresizingMaskIntoConstraints = false
@@ -66,7 +70,8 @@ final class TrayIconView: NSView {
 
     private func activateApplication() {
         switch TrayActivationPlanner.action(
-            bundleIdentifier: application.bundleIdentifier
+            bundleIdentifier: application.bundleIdentifier,
+            hasAnyWindows: hasAnyApplicationWindows()
         ) {
         case .activateApplication:
             activateOrReopenApplication(shouldReopen: false)
@@ -90,6 +95,17 @@ final class TrayIconView: NSView {
             applicationURL: application.bundleURL,
             shouldReopen: shouldReopen
         )
+    }
+
+    private func hasAnyApplicationWindows() -> Bool? {
+        if AXIsProcessTrusted() {
+            let windows = accessibilityService.enumerateWindows(for: application)
+            if !windows.isEmpty {
+                return true
+            }
+        }
+
+        return LauncherApplicationActivator.hasCGWindows(for: application)
     }
 
     private func makeContextMenu() -> NSMenu {

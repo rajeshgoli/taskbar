@@ -6,12 +6,17 @@ enum TrayActivationAction: Equatable {
 
 enum TrayActivationPlanner {
     static func action(
-        bundleIdentifier: String?
+        bundleIdentifier: String?,
+        hasAnyWindows: Bool?
     ) -> TrayActivationAction {
         if bundleIdentifier == LauncherActivationPlanner.finderBundleIdentifier {
             return .openFinderWindow
         }
 
-        return bundleIdentifier == nil ? .activateApplication : .reopenApplication
+        guard bundleIdentifier != nil else {
+            return .activateApplication
+        }
+
+        return hasAnyWindows == false ? .reopenApplication : .activateApplication
     }
 }
