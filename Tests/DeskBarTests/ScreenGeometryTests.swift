@@ -122,6 +122,66 @@ func rightHalfSystemFillWindowIsAdjustedAboveTaskbar() {
 }
 
 @Test
+func leftHalfSystemFillWindowRoutesToLeftTaskbarZone() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 30, width: 960, height: 1010)
+
+    let zone = ScreenGeometry.taskbarZone(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        topInset: 30,
+        taskbarHeight: 40
+    )
+
+    #expect(zone == .left)
+}
+
+@Test
+func rightHalfSystemFillWindowRoutesToRightTaskbarZone() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 960, y: 30, width: 960, height: 1010)
+
+    let zone = ScreenGeometry.taskbarZone(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        topInset: 30,
+        taskbarHeight: 40
+    )
+
+    #expect(zone == .right)
+}
+
+@Test
+func fullWidthSystemFillWindowRoutesToNeutralTaskbarZone() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 30, width: 1920, height: 1010)
+
+    let zone = ScreenGeometry.taskbarZone(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        topInset: 30,
+        taskbarHeight: 40
+    )
+
+    #expect(zone == .neutral)
+}
+
+@Test
+func shortManualSideWindowRoutesToNeutralTaskbarZone() {
+    let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let windowBounds = CGRect(x: 0, y: 30, width: 960, height: 500)
+
+    let zone = ScreenGeometry.taskbarZone(
+        for: windowBounds,
+        onDisplay: displayBounds,
+        topInset: 30,
+        taskbarHeight: 40
+    )
+
+    #expect(zone == .neutral)
+}
+
+@Test
 func shortManualWindowIsNotAdjustedForTaskbar() {
     let displayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     let windowBounds = CGRect(x: 0, y: 600, width: 960, height: 480)

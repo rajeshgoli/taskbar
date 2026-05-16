@@ -15,8 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var badgeMonitor: BadgeMonitor?
     private var appStateMonitor: AppStateMonitor?
     private var thumbnailService: ThumbnailService?
+    private var windowLayoutSnapshotManager: WindowLayoutSnapshotManager?
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
+    private var restoreWindowsMenuItem: NSMenuItem?
     private var cancellables = Set<AnyCancellable>()
     private var signalSources: [DispatchSourceSignal] = []
     private var isHandlingTerminationSignal = false
@@ -55,6 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let thumbnailService = ThumbnailService()
         self.thumbnailService = thumbnailService
+
+        let windowLayoutSnapshotManager = WindowLayoutSnapshotManager(windowManager: wm)
+        self.windowLayoutSnapshotManager = windowLayoutSnapshotManager
 
         configureObservers(
             windowManager: wm,
@@ -97,6 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func quitApplication(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    @objc
+    private func restoreWindowsFromLastSleep(_ sender: Any?) {
+        windowLayoutSnapshotManager?.restoreLatestSnapshot(manual: true)
+        updateRestoreWindowsMenuItem()
     }
 
     private func bindDockMode(settings: TaskbarSettings) {
@@ -158,6 +169,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settingsItem)
         menu.addItem(.separator())
 
+        let restoreWindowsItem = NSMenuItem(
+            title: "Restore Windows From Last Sleep",
+            action: #selector(restoreWindowsFromLastSleep(_:)),
+            keyEquivalent: ""
+        )
+        restoreWindowsItem.target = self
+        menu.addItem(restoreWindowsItem)
+        restoreWindowsMenuItem = restoreWindowsItem
+        menu.addItem(.separator())
+
         let quitItem = NSMenuItem(
             title: "Quit",
             action: #selector(quitApplication(_:)),
@@ -168,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem.menu = menu
         self.statusItem = statusItem
+        updateRestoreWindowsMenuItem()
     }
 
     private func configureObservers(
@@ -179,6 +201,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.handleAccessibilityPermissionChange()
+                self?.updateRestoreWindowsMenuItem()
+            }
+            .store(in: &cancellables)
+
+        windowLayoutSnapshotManager?.$hasRestorableSnapshot
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateRestoreWindowsMenuItem()
             }
             .store(in: &cancellables)
 
@@ -305,6 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reconcilePanels()
         handleAccessibilityPermissionChange()
         updatePanelVisibility()
+        windowLayoutSnapshotManager?.handleDisplayConfigurationChange()
     }
 
     private func updatePanelVisibility() {
@@ -334,6 +365,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleAccessibilityPermissionChange() {
         contentViews.values.forEach { $0.handleAccessibilityPermissionChange() }
         panels.values.forEach { $0.updateForAccessibilityPermissionChange() }
+    }
+
+    private func updateRestoreWindowsMenuItem() {
+        restoreWindowsMenuItem?.isEnabled =
+            (windowLayoutSnapshotManager?.hasRestorableSnapshot ?? false) &&
+            (permissionsManager?.isAccessibilityGranted ?? false)
     }
 
     private func screensToShow(showOnAllMonitors: Bool) -> [NSScreen] {

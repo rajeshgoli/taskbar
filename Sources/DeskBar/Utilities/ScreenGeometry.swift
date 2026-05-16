@@ -1,5 +1,11 @@
 import AppKit
 
+enum TaskbarWindowZone: Equatable {
+    case left
+    case neutral
+    case right
+}
+
 struct ScreenGeometry {
     private static let fullScreenTolerance: CGFloat = 2
     private static let menuBarInset: CGFloat = 25
@@ -185,6 +191,32 @@ struct ScreenGeometry {
             resemblesHalfWidthFill(frame: frame, onDisplay: displayBounds)
     }
 
+    static func taskbarZone(
+        for frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        topInset: CGFloat = menuBarInset,
+        taskbarHeight: CGFloat
+    ) -> TaskbarWindowZone {
+        guard resemblesSideFillWindow(
+            frame: frame,
+            onDisplay: displayBounds,
+            topInset: topInset,
+            taskbarHeight: taskbarHeight
+        ) else {
+            return .neutral
+        }
+
+        if nearlyEqual(frame.minX, displayBounds.minX, tolerance: systemFillTolerance) {
+            return .left
+        }
+
+        if nearlyEqual(frame.maxX, displayBounds.maxX, tolerance: systemFillTolerance) {
+            return .right
+        }
+
+        return .neutral
+    }
+
     private static func isTopAlignedSystemFill(
         frame: CGRect,
         onDisplay displayBounds: CGRect,
@@ -207,6 +239,32 @@ struct ScreenGeometry {
 
         return nearlyEqual(frame.minX, displayBounds.minX, tolerance: systemFillTolerance) ||
             nearlyEqual(frame.maxX, displayBounds.maxX, tolerance: systemFillTolerance)
+    }
+
+    private static func resemblesSideFillWindow(
+        frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        topInset: CGFloat,
+        taskbarHeight: CGFloat
+    ) -> Bool {
+        guard
+            isTopAlignedSystemFill(frame: frame, onDisplay: displayBounds, topInset: topInset),
+            isBottomAlignedSystemFill(frame: frame, onDisplay: displayBounds, taskbarHeight: taskbarHeight),
+            frame.height >= displayBounds.height * minimumSystemFillHeightRatio
+        else {
+            return false
+        }
+
+        return resemblesHalfWidthFill(frame: frame, onDisplay: displayBounds)
+    }
+
+    private static func isBottomAlignedSystemFill(
+        frame: CGRect,
+        onDisplay displayBounds: CGRect,
+        taskbarHeight: CGFloat
+    ) -> Bool {
+        nearlyEqual(frame.maxY, displayBounds.maxY, tolerance: systemFillTolerance) ||
+            nearlyEqual(frame.maxY, displayBounds.maxY - taskbarHeight, tolerance: systemFillTolerance)
     }
 
     private static func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat) -> Bool {

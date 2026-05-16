@@ -16,12 +16,21 @@ final class TaskbarContentView: NSView {
     private let launcherZoneView: LauncherZoneView
     private let runningAppTrayView: RunningAppTrayView
     private let axGetWindow: AXUIElementGetWindowFunc?
+    private let accessibilityService = AccessibilityService()
 
     private let rootStackView = NSStackView()
     private let bannerButton = NSButton()
     private let zonesStackView = NSStackView()
-    private let taskZoneScrollView = NSScrollView()
-    private let taskZoneStackView = NSStackView()
+    private let taskZoneLayoutStackView = NSStackView()
+    private let leftTaskZoneStackView = NSStackView()
+    private let neutralTaskZoneStackView = NSStackView()
+    private let rightTaskZoneStackView = NSStackView()
+    private let leftTaskZoneSeparatorView = TaskZoneSeparatorView()
+    private let rightTaskZoneSeparatorView = TaskZoneSeparatorView()
+    private let clusterLeadingSpacerView = TaskZoneFlexibleSpacerView()
+    private let clusterTrailingSpacerView = TaskZoneFlexibleSpacerView()
+    private let taskZoneItemSpacing: CGFloat = 8
+    private let taskZoneGroupSpacing: CGFloat = 12
 
     private let pinnedAppManager: PinnedAppManager
     private let thumbnailService: ThumbnailService?
@@ -32,6 +41,7 @@ final class TaskbarContentView: NSView {
     private var globalFlagsMonitor: Any?
     private var expandedGroupID: String?
     private weak var expandedGroupView: NSView?
+    private var clusterSpacerEqualWidthConstraint: NSLayoutConstraint?
     private var groupedTaskOrderState = TaskZoneOrderingState()
     private var ungroupedTaskOrderState = TaskZoneOrderingState()
     private var taskItemViews: [String: NSView] = [:]
@@ -169,40 +179,42 @@ final class TaskbarContentView: NSView {
         taskZoneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         taskZoneContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        taskZoneScrollView.drawsBackground = false
-        taskZoneScrollView.borderType = .noBorder
-        taskZoneScrollView.hasHorizontalScroller = false
-        taskZoneScrollView.hasVerticalScroller = false
-        taskZoneScrollView.autohidesScrollers = true
-        taskZoneScrollView.translatesAutoresizingMaskIntoConstraints = false
-        taskZoneContainer.addSubview(taskZoneScrollView)
+        taskZoneLayoutStackView.orientation = .horizontal
+        taskZoneLayoutStackView.alignment = .centerY
+        taskZoneLayoutStackView.distribution = .fill
+        taskZoneLayoutStackView.spacing = taskZoneGroupSpacing
+        taskZoneLayoutStackView.translatesAutoresizingMaskIntoConstraints = false
+        taskZoneContainer.addSubview(taskZoneLayoutStackView)
+
+        [leftTaskZoneStackView, neutralTaskZoneStackView, rightTaskZoneStackView].forEach { stackView in
+            stackView.orientation = .horizontal
+            stackView.alignment = .centerY
+            stackView.distribution = .fill
+            stackView.spacing = taskZoneItemSpacing
+            stackView.translatesAutoresizingMaskIntoConstraints = false
+            stackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            stackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        }
+
+        taskZoneLayoutStackView.addArrangedSubview(clusterLeadingSpacerView)
+        taskZoneLayoutStackView.addArrangedSubview(leftTaskZoneStackView)
+        taskZoneLayoutStackView.addArrangedSubview(leftTaskZoneSeparatorView)
+        taskZoneLayoutStackView.addArrangedSubview(neutralTaskZoneStackView)
+        taskZoneLayoutStackView.addArrangedSubview(rightTaskZoneSeparatorView)
+        taskZoneLayoutStackView.addArrangedSubview(rightTaskZoneStackView)
+        taskZoneLayoutStackView.addArrangedSubview(clusterTrailingSpacerView)
+        clusterSpacerEqualWidthConstraint = clusterLeadingSpacerView.widthAnchor.constraint(
+            equalTo: clusterTrailingSpacerView.widthAnchor
+        )
+        clusterSpacerEqualWidthConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
-            taskZoneScrollView.leadingAnchor.constraint(equalTo: taskZoneContainer.leadingAnchor),
-            taskZoneScrollView.trailingAnchor.constraint(equalTo: taskZoneContainer.trailingAnchor),
-            taskZoneScrollView.topAnchor.constraint(equalTo: taskZoneContainer.topAnchor),
-            taskZoneScrollView.bottomAnchor.constraint(equalTo: taskZoneContainer.bottomAnchor),
+            taskZoneLayoutStackView.leadingAnchor.constraint(equalTo: taskZoneContainer.leadingAnchor),
+            taskZoneLayoutStackView.trailingAnchor.constraint(equalTo: taskZoneContainer.trailingAnchor),
+            taskZoneLayoutStackView.topAnchor.constraint(equalTo: taskZoneContainer.topAnchor),
+            taskZoneLayoutStackView.bottomAnchor.constraint(equalTo: taskZoneContainer.bottomAnchor),
             taskZoneContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
         ])
-
-        taskZoneStackView.orientation = .horizontal
-        taskZoneStackView.alignment = .centerY
-        taskZoneStackView.spacing = 8
-        taskZoneStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        taskZoneStackView.translatesAutoresizingMaskIntoConstraints = false
-
-        let taskZoneDocumentView = NSView()
-        taskZoneDocumentView.translatesAutoresizingMaskIntoConstraints = false
-        taskZoneDocumentView.addSubview(taskZoneStackView)
-
-        NSLayoutConstraint.activate([
-            taskZoneStackView.leadingAnchor.constraint(equalTo: taskZoneDocumentView.leadingAnchor),
-            taskZoneStackView.trailingAnchor.constraint(equalTo: taskZoneDocumentView.trailingAnchor),
-            taskZoneStackView.topAnchor.constraint(equalTo: taskZoneDocumentView.topAnchor),
-            taskZoneStackView.bottomAnchor.constraint(equalTo: taskZoneDocumentView.bottomAnchor)
-        ])
-
-        taskZoneScrollView.documentView = taskZoneDocumentView
 
         zonesStackView.addArrangedSubview(launcherZoneView)
         zonesStackView.addArrangedSubview(taskZoneContainer)
@@ -315,17 +327,23 @@ final class TaskbarContentView: NSView {
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let scopedWindows = scopedVisibleWindows()
+        let screen = ScreenGeometry.screen(for: displayID)
         let shouldGroupWindows = shouldGroupWindows(scopedWindows)
 
         if shouldGroupWindows {
             let items = orderedGroupedTaskItems(from: scopedWindows)
-            var desiredViews: [NSView] = []
+            var placedViews: [TaskZonePlacedView] = []
             var retainedItemIDs = Set<String>()
 
             for item in items {
                 let itemID = groupedTaskItemID(for: item)
                 let view = groupedTaskView(for: item, itemID: itemID, frontmostPID: frontmostPID)
-                desiredViews.append(view)
+                placedViews.append(
+                    TaskZonePlacedView(
+                        view: view,
+                        zone: taskbarZone(for: item, on: screen)
+                    )
+                )
                 retainedItemIDs.insert(itemID)
 
                 switch item {
@@ -339,7 +357,7 @@ final class TaskbarContentView: NSView {
             }
 
             removeStaleTaskItemViews(retaining: retainedItemIDs)
-            reconcileArrangedSubviews(desiredViews, in: taskZoneStackView)
+            reconcileTaskZone(with: placedViews)
             return
         }
 
@@ -347,18 +365,21 @@ final class TaskbarContentView: NSView {
             expandedGroupID = nil
         }
         let orderedWindows = orderedUngroupedWindows(from: scopedWindows)
-        let desiredViews = orderedWindows.map { window in
-            taskButtonView(
-                for: window,
-                itemID: ungroupedTaskItemID(for: window),
-                frontmostPID: frontmostPID,
-                dragItemID: ungroupedTaskItemID(for: window)
+        let placedViews = orderedWindows.map { window in
+            TaskZonePlacedView(
+                view: taskButtonView(
+                    for: window,
+                    itemID: ungroupedTaskItemID(for: window),
+                    frontmostPID: frontmostPID,
+                    dragItemID: ungroupedTaskItemID(for: window)
+                ),
+                zone: taskbarZone(for: window, on: screen)
             )
         }
         let retainedItemIDs = Set(orderedWindows.map(ungroupedTaskItemID(for:)))
 
         removeStaleTaskItemViews(retaining: retainedItemIDs)
-        reconcileArrangedSubviews(desiredViews, in: taskZoneStackView)
+        reconcileTaskZone(with: placedViews)
     }
 
     private func scopedVisibleWindows() -> [WindowInfo] {
@@ -486,7 +507,9 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        taskZoneStackView.removeArrangedSubview(view)
+        if let stackView = view.superview as? NSStackView {
+            stackView.removeArrangedSubview(view)
+        }
         view.removeFromSuperview()
     }
 
@@ -557,6 +580,53 @@ final class TaskbarContentView: NSView {
             expandedGroup.isExpanded = expandedGroup.id == expandedGroupID
             return .group(expandedGroup)
         }
+    }
+
+    private func reconcileTaskZone(with placedViews: [TaskZonePlacedView]) {
+        let leftViews = placedViews.filter { $0.zone == .left }.map(\.view)
+        let neutralViews = placedViews.filter { $0.zone == .neutral }.map(\.view)
+        let rightViews = placedViews.filter { $0.zone == .right }.map(\.view)
+        let hasLeftViews = !leftViews.isEmpty
+        let hasNeutralViews = !neutralViews.isEmpty
+        let hasRightViews = !rightViews.isEmpty
+
+        reconcileArrangedSubviews(leftViews, in: leftTaskZoneStackView)
+        reconcileArrangedSubviews(neutralViews, in: neutralTaskZoneStackView)
+        reconcileArrangedSubviews(rightViews, in: rightTaskZoneStackView)
+
+        leftTaskZoneStackView.isHidden = !hasLeftViews
+        neutralTaskZoneStackView.isHidden = !hasNeutralViews
+        rightTaskZoneStackView.isHidden = !hasRightViews
+
+        let separatesLeftAndNeutral = hasLeftViews && hasNeutralViews
+        let separatesNeutralAndRight = hasNeutralViews && hasRightViews
+        let separatesLeftAndRight = hasLeftViews && hasRightViews && !hasNeutralViews
+        leftTaskZoneSeparatorView.isHidden = !(separatesLeftAndNeutral || separatesLeftAndRight)
+        rightTaskZoneSeparatorView.isHidden = !separatesNeutralAndRight
+    }
+
+    private func taskbarZone(for item: TaskZoneItem, on screen: NSScreen?) -> TaskbarWindowZone {
+        switch item {
+        case .window(let window):
+            return taskbarZone(for: window, on: screen)
+        case .group(let group):
+            let zones = group.windows.map { taskbarZone(for: $0, on: screen) }
+            guard let firstZone = zones.first,
+                  zones.allSatisfy({ $0 == firstZone })
+            else {
+                return .neutral
+            }
+
+            return firstZone
+        }
+    }
+
+    private func taskbarZone(for window: WindowInfo, on screen: NSScreen?) -> TaskbarWindowZone {
+        guard let screen else {
+            return .neutral
+        }
+
+        return windowManager.taskbarZone(for: window, on: screen)
     }
 
     private func currentFrontmostWindowID(in visibleWindows: [WindowInfo]) -> String? {
@@ -794,7 +864,7 @@ final class TaskbarContentView: NSView {
     }
 
     private var availableTaskZoneWidth: CGFloat {
-        let width = taskZoneScrollView.contentSize.width > 0 ? taskZoneScrollView.contentSize.width : taskZoneScrollView.bounds.width
+        let width = taskZoneLayoutStackView.bounds.width
         return max(width, 320)
     }
 
@@ -816,7 +886,7 @@ final class TaskbarContentView: NSView {
                 textWidth = titlePadding
             }
 
-            return partialResult + textWidth + taskZoneStackView.spacing
+            return partialResult + textWidth + taskZoneItemSpacing
         }
     }
 
@@ -942,15 +1012,8 @@ final class TaskbarContentView: NSView {
             return
         }
 
-        // Raise the specific window via AX, then activate the app
         if let windowElement = matchingWindowElement(for: windowInfo, application: application) {
-            // Set as the app's main/focused window first
-            let appElement = AXUIElementCreateApplication(application.processIdentifier)
-            _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, windowElement)
-            // Raise to front of app's window stack
-            _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
-            // Activate the app to bring it forward (the raised window is now on top)
-            application.activate()
+            accessibilityService.raiseAndActivate(element: windowElement, app: application)
         } else {
             // Fallback: no AX element found, activate all windows
             application.activate(options: .activateAllWindows)
@@ -968,8 +1031,7 @@ final class TaskbarContentView: NSView {
             kAXMinimizedAttribute as CFString,
             kCFBooleanFalse
         )
-        _ = AXUIElementPerformAction(windowElement, kAXRaiseAction as CFString)
-        application.activate(options: .activateAllWindows)
+        accessibilityService.raiseAndActivate(element: windowElement, app: application)
     }
 
     private func matchingWindowElement(
@@ -1060,6 +1122,11 @@ final class TaskbarContentView: NSView {
 private enum TaskZoneItem {
     case window(WindowInfo)
     case group(AppGroup)
+}
+
+private struct TaskZonePlacedView {
+    let view: NSView
+    let zone: TaskbarWindowZone
 }
 
 private struct TaskZoneOrderingState {
@@ -1792,18 +1859,57 @@ private final class TaskZoneGroupContainerView: NSView {
     }
 }
 
+private final class TaskZoneSeparatorView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 1),
+            heightAnchor.constraint(equalToConstant: 22)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 1, height: 22)
+    }
+}
+
+private final class TaskZoneFlexibleSpacerView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        widthAnchor.constraint(greaterThanOrEqualToConstant: 8).isActive = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 8, height: 1)
+    }
+}
+
 private func reconcileArrangedSubviews(_ desiredViews: [NSView], in stackView: NSStackView) {
     let desiredIdentifiers = Set(desiredViews.map(ObjectIdentifier.init))
 
-    // Fade out removed views
     for view in stackView.arrangedSubviews where !desiredIdentifiers.contains(ObjectIdentifier(view)) {
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.15
-            view.animator().alphaValue = 0
-        }, completionHandler: {
-            stackView.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        })
+        view.layer?.removeAllAnimations()
+        view.alphaValue = 1
+        stackView.removeArrangedSubview(view)
+        view.removeFromSuperview()
     }
 
     for (index, view) in desiredViews.enumerated() {
@@ -1817,7 +1923,6 @@ private func reconcileArrangedSubviews(_ desiredViews: [NSView], in stackView: N
             stackView.removeArrangedSubview(view)
         }
 
-        // Fade in new views
         let isNew = !stackView.arrangedSubviews.contains(where: { $0 === view })
         if isNew {
             view.alphaValue = 0

@@ -208,6 +208,42 @@ final class WindowManager: ObservableObject {
         return scopedWindows.filter { visibleWindowPIDs.contains($0.pid) }
     }
 
+    func taskbarZone(for window: WindowInfo, on screen: NSScreen) -> TaskbarWindowZone {
+        guard let bounds = bounds(for: window) else {
+            return .neutral
+        }
+
+        return ScreenGeometry.taskbarZone(
+            for: bounds,
+            onDisplay: ScreenGeometry.displayBounds(for: screen),
+            topInset: ScreenGeometry.topInset(for: screen),
+            taskbarHeight: taskbarHeight
+        )
+    }
+
+    func layoutSnapshotCandidates() -> [WindowLayoutCaptureCandidate] {
+        windows.compactMap { window in
+            guard
+                !window.isMinimized,
+                !window.isHidden,
+                let bounds = bounds(for: window),
+                let screen = ScreenGeometry.screen(for: bounds),
+                let displayID = ScreenGeometry.displayID(for: screen),
+                activeDisplayIDs.isEmpty || activeDisplayIDs.contains(displayID)
+            else {
+                return nil
+            }
+
+            return WindowLayoutCaptureCandidate(
+                window: window,
+                bounds: bounds,
+                screen: screen,
+                displayID: displayID,
+                displayBounds: ScreenGeometry.displayBounds(for: screen)
+            )
+        }
+    }
+
     func trayApplications(on screen: NSScreen) -> [NSRunningApplication] {
         let displayBounds = ScreenGeometry.displayBounds(for: screen)
         let scopedWindows = windows(onDisplay: displayBounds)
@@ -710,6 +746,14 @@ struct RunningApplicationCandidate: Equatable {
     let pid: pid_t
     let bundleIdentifier: String?
     let name: String
+}
+
+struct WindowLayoutCaptureCandidate {
+    let window: WindowInfo
+    let bounds: CGRect
+    let screen: NSScreen
+    let displayID: CGDirectDisplayID
+    let displayBounds: CGRect
 }
 
 private struct CGWindowSnapshot {
