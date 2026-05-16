@@ -72,6 +72,7 @@ tccutil reset Accessibility com.deskbar.app
 | **Shift+Option+Tab** | Moves backward in the window switcher |
 | **Release Option** | Activates the highlighted window |
 | **Escape** while switching | Cancels the switcher without changing windows |
+| **Tap Command by itself** | Opens the macOS Apps launcher |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
 | **Drag** task buttons | Reorder; dragged items hold position |

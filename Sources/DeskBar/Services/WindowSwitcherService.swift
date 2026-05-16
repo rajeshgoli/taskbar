@@ -13,6 +13,7 @@ final class WindowSwitcherService {
     private var overlayPanels: [CGDirectDisplayID: WindowSwitcherPanel] = [:]
     private var sessionWindows: [WindowInfo] = []
     private var selectedIndex: Int?
+    private var bareCommandDetector = BareCommandShortcutDetector()
 
     init(
         windowManager: WindowManager,
@@ -168,6 +169,12 @@ final class WindowSwitcherService {
         let flags = event.flags
 
         if type == .flagsChanged {
+            if bareCommandDetector.handleFlagsChanged(flags) {
+                DispatchQueue.main.async {
+                    AppsLauncher.open()
+                }
+            }
+
             if !flags.contains(.maskAlternate) {
                 DispatchQueue.main.async { [weak self] in
                     self?.endSession(commitSelection: true)
@@ -180,12 +187,17 @@ final class WindowSwitcherService {
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         if keyCode == Self.escapeKeyCode, !sessionWindows.isEmpty {
             if type == .keyDown {
+                bareCommandDetector.handleKeyDown()
                 DispatchQueue.main.async { [weak self] in
                     self?.endSession(commitSelection: false)
                 }
             }
 
             return nil
+        }
+
+        if type == .keyDown {
+            bareCommandDetector.handleKeyDown()
         }
 
         guard keyCode == Self.tabKeyCode,
