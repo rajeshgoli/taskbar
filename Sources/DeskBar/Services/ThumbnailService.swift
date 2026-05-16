@@ -45,17 +45,17 @@ final class ThumbnailService: ObservableObject {
 
         guard CGPreflightScreenCaptureAccess() else {
             isScreenRecordingGranted = false
-            return nil
+            return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
         isScreenRecordingGranted = true
 
         guard let content = try? await SCShareableContent.current else {
-            return nil
+            return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
         guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
-            return nil
+            return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -66,13 +66,11 @@ final class ThumbnailService: ObservableObject {
         config.scalesToFit = true
         config.showsCursor = false
 
-        guard
-            let image = try? await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-        else {
-            return nil
+        guard let image = try? await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: config
+        ) else {
+            return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
         let thumbnail = NSImage(cgImage: image, size: size)
@@ -81,6 +79,31 @@ final class ThumbnailService: ObservableObject {
             expirationDate: Date().addingTimeInterval(cacheTTL)
         )
         return thumbnail
+    }
+
+    private func cachedLegacyThumbnail(windowID: CGWindowID, size: CGSize) -> NSImage? {
+        guard let thumbnail = legacyWindowThumbnail(windowID: windowID, size: size) else {
+            return nil
+        }
+
+        cache[windowID] = CachedThumbnail(
+            image: thumbnail,
+            expirationDate: Date().addingTimeInterval(cacheTTL)
+        )
+        return thumbnail
+    }
+
+    private func legacyWindowThumbnail(windowID: CGWindowID, size: CGSize) -> NSImage? {
+        guard let image = CGWindowListCreateImage(
+            .null,
+            .optionIncludingWindow,
+            windowID,
+            [.boundsIgnoreFraming, .bestResolution]
+        ) else {
+            return nil
+        }
+
+        return NSImage(cgImage: image, size: size)
     }
 
     private func pruneExpiredCache() {

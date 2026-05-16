@@ -96,7 +96,7 @@ private final class WindowSwitcherOverlayView: NSView {
         scrollView.borderType = .noBorder
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets(top: 0, left: 28, bottom: 0, right: 28)
-        glassView.addSubview(scrollView)
+        addSubview(scrollView)
 
         stackView.orientation = .horizontal
         stackView.alignment = .centerY
@@ -125,7 +125,7 @@ private final class WindowSwitcherOverlayView: NSView {
             width: width,
             height: height
         )
-        scrollView.frame = glassView.bounds.insetBy(dx: 22, dy: 22)
+        scrollView.frame = glassView.frame.insetBy(dx: 22, dy: 22)
         stackView.frame.size = stackView.fittingSize
         updateColors()
         centerSelectedCard()
@@ -223,14 +223,14 @@ private final class WindowSwitcherOverlayView: NSView {
     }
 
     private func updateColors() {
-        backdropView.alphaValue = reduceTransparency ? 0 : 0.42
+        backdropView.alphaValue = reduceTransparency ? 0 : 0.28
         let dimAlpha: CGFloat
         if increaseContrast {
-            dimAlpha = 0.48
+            dimAlpha = 0.42
         } else if reduceTransparency {
             dimAlpha = 0.78
         } else {
-            dimAlpha = 0.22
+            dimAlpha = 0.16
         }
         dimmingView.layer?.backgroundColor = NSColor.black.withAlphaComponent(dimAlpha).cgColor
         glassView.configure(reduceTransparency: reduceTransparency, increaseContrast: increaseContrast)
@@ -286,17 +286,19 @@ private final class LiquidGlassContainerView: NSVisualEffectView {
 
     func configure(reduceTransparency: Bool, increaseContrast: Bool) {
         if reduceTransparency {
+            alphaValue = 1
             material = .windowBackground
             layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.96).cgColor
         } else {
+            alphaValue = increaseContrast ? 0.52 : 0.32
             material = .hudWindow
-            layer?.backgroundColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.14 : 0.035).cgColor
+            layer?.backgroundColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.10 : 0.02).cgColor
         }
 
         rimLayer.colors = [
-            NSColor.white.withAlphaComponent(increaseContrast ? 0.72 : 0.34).cgColor,
-            NSColor.controlAccentColor.withAlphaComponent(increaseContrast ? 0.30 : 0.16).cgColor,
-            NSColor.black.withAlphaComponent(0.06).cgColor
+            NSColor.white.withAlphaComponent(increaseContrast ? 0.66 : 0.24).cgColor,
+            NSColor.controlAccentColor.withAlphaComponent(increaseContrast ? 0.26 : 0.10).cgColor,
+            NSColor.black.withAlphaComponent(0.04).cgColor
         ]
         rimLayer.borderWidth = increaseContrast ? 1.5 : 1
         rimLayer.borderColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.58 : 0.28).cgColor
@@ -346,7 +348,7 @@ private final class WindowSwitcherCardView: NSView {
         addSubview(thumbnailView)
 
         fallbackIconView.imageScaling = .scaleProportionallyUpOrDown
-        fallbackIconView.alphaValue = 0.64
+        fallbackIconView.alphaValue = 0.36
         addSubview(fallbackIconView)
 
         footerView.wantsLayer = true
@@ -447,10 +449,10 @@ private final class WindowSwitcherCardView: NSView {
             ? NSColor.controlAccentColor.withAlphaComponent(0.92)
             : NSColor.white.withAlphaComponent(0.28)
         ).cgColor
-        backgroundView.alphaValue = isSelected ? 0.58 : 0.34
+        backgroundView.alphaValue = isSelected ? 0.92 : 0.78
         footerView.layer?.cornerRadius = 16
         footerView.layer?.cornerCurve = .continuous
-        footerView.layer?.backgroundColor = NSColor.black.withAlphaComponent(isSelected ? 0.30 : 0.20).cgColor
+        footerView.layer?.backgroundColor = NSColor.black.withAlphaComponent(isSelected ? 0.46 : 0.34).cgColor
         titleField.textColor = .white
         appField.textColor = NSColor.white.withAlphaComponent(0.72)
     }
