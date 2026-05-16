@@ -36,3 +36,12 @@ func bareCommandIgnoresModifierPressedDuringCommandTap() {
     #expect(detector.handleFlagsChanged(.maskCommand) == false)
     #expect(detector.handleFlagsChanged([]) == false)
 }
+
+@Test
+func bareCommandIgnoresPointerCancellation() {
+    var detector = BareCommandShortcutDetector()
+
+    #expect(detector.handleFlagsChanged(.maskCommand) == false)
+    detector.cancel()
+    #expect(detector.handleFlagsChanged([]) == false)
+}

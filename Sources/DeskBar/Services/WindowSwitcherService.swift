@@ -4,6 +4,32 @@ import ApplicationServices
 final class WindowSwitcherService {
     private static let tabKeyCode: CGKeyCode = 48
     private static let escapeKeyCode: CGKeyCode = 53
+    static let eventTypesOfInterest: [CGEventType] = [
+        .keyDown,
+        .keyUp,
+        .flagsChanged,
+        .leftMouseDown,
+        .rightMouseDown,
+        .otherMouseDown,
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged,
+        .scrollWheel
+    ]
+    static let pointerInteractionEventTypes: Set<CGEventType> = [
+        .leftMouseDown,
+        .rightMouseDown,
+        .otherMouseDown,
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged,
+        .scrollWheel
+    ]
+    private static var eventMask: CGEventMask {
+        eventTypesOfInterest.reduce(CGEventMask(0)) { mask, eventType in
+            mask | CGEventMask(1 << eventType.rawValue)
+        }
+    }
 
     private let windowManager: WindowManager
     private let accessibilityService: AccessibilityService
@@ -103,17 +129,13 @@ final class WindowSwitcherService {
             return
         }
 
-        let eventMask =
-            CGEventMask(1 << CGEventType.keyDown.rawValue) |
-            CGEventMask(1 << CGEventType.keyUp.rawValue) |
-            CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
-            eventsOfInterest: eventMask,
+            eventsOfInterest: Self.eventMask,
             callback: Self.eventTapCallback,
             userInfo: context
         ) else {
@@ -167,6 +189,11 @@ final class WindowSwitcherService {
         }
 
         let flags = event.flags
+
+        if Self.pointerInteractionEventTypes.contains(type) {
+            bareCommandDetector.cancel()
+            return Unmanaged.passUnretained(event)
+        }
 
         if type == .flagsChanged {
             if bareCommandDetector.handleFlagsChanged(flags) {

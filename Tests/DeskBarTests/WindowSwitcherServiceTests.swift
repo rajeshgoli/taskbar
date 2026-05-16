@@ -3,6 +3,16 @@ import Testing
 @testable import DeskBar
 
 @Test
+func windowSwitcherEventTapIncludesPointerEventsForBareCommandCancellation() {
+    let eventTypes = Set(WindowSwitcherService.eventTypesOfInterest)
+
+    #expect(eventTypes.contains(.leftMouseDown))
+    #expect(eventTypes.contains(.rightMouseDown))
+    #expect(eventTypes.contains(.otherMouseDown))
+    #expect(eventTypes.contains(.scrollWheel))
+}
+
+@Test
 func switchableWindowsFollowZOrderAndAppendUnlistedWindows() {
     let first = window(pid: 1, cgWindowID: 10, title: "First")
     let second = window(pid: 2, cgWindowID: 20, title: "Second")
