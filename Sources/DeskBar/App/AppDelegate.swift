@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let windowSwitcherService = WindowSwitcherService(
             windowManager: wm,
+            settings: settings,
             thumbnailService: thumbnailService
         )
         self.windowSwitcherService = windowSwitcherService
@@ -314,7 +315,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 blacklistManager: blacklistManager,
                 pinnedAppManager: pinnedAppManager,
                 thumbnailService: thumbnailService,
-                displayID: displayID
+                displayID: displayID,
+                openSettingsHandler: { [weak self] in
+                    self?.openSettings(nil)
+                }
             )
             let panel = TaskbarPanel(
                 permissionsManager: permissionsManager,
@@ -323,6 +327,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             panel.updateCollectionBehavior(showOverFullScreenApps: settings.showOverFullScreenApps)
             panel.setContentSubview(contentView)
+            contentView.preferredWidthDidChange = { [weak panel] in
+                panel?.requestLayoutUpdate(animated: false)
+            }
 
             contentViews[displayID] = contentView
             panels[displayID] = panel

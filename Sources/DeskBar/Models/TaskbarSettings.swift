@@ -13,6 +13,13 @@ enum WindowGroupingMode: String, CaseIterable {
     case always
 }
 
+enum DeskBarLayoutMode: String, CaseIterable {
+    case fullWidth
+    case fullWidthGlass
+    case compact
+    case compactGlass
+}
+
 class TaskbarSettings: ObservableObject {
     private let defaults: UserDefaults
 
@@ -80,6 +87,18 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(showOnAllMonitors, forKey: "showOnAllMonitors") }
     }
 
+    @Published var layoutMode: DeskBarLayoutMode {
+        didSet { defaults.set(layoutMode.rawValue, forKey: "layoutMode") }
+    }
+
+    @Published var enableWindowSwitcher: Bool {
+        didSet { defaults.set(enableWindowSwitcher, forKey: "enableWindowSwitcher") }
+    }
+
+    @Published var enableBareCommandLauncher: Bool {
+        didSet { defaults.set(enableBareCommandLauncher, forKey: "enableBareCommandLauncher") }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? 40
@@ -105,5 +124,8 @@ class TaskbarSettings: ObservableObject {
         enableActivityMode = defaults.object(forKey: "enableActivityMode") as? Bool ?? true
         startAtLogin = defaults.object(forKey: "startAtLogin") as? Bool ?? false
         showOnAllMonitors = defaults.object(forKey: "showOnAllMonitors") as? Bool ?? true
+        layoutMode = DeskBarLayoutMode(rawValue: defaults.string(forKey: "layoutMode") ?? "") ?? .fullWidth
+        enableWindowSwitcher = defaults.object(forKey: "enableWindowSwitcher") as? Bool ?? true
+        enableBareCommandLauncher = defaults.object(forKey: "enableBareCommandLauncher") as? Bool ?? true
     }
 }

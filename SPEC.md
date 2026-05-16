@@ -11,7 +11,7 @@ Rather than work around a buggy third-party app with a suspicious bundle ID, we'
 - **Framework:** Swift / AppKit (pure native, no Electron)
 - **Build system:** Swift Package Manager (no Xcode required)
 - **Min deployment:** macOS 14.0
-- **Position:** Bottom edge of screen, full width (see Dock Coexistence for interaction with the macOS Dock)
+- **Position:** Bottom edge of screen, full width by default, with optional compact centered layouts (see Dock Coexistence for interaction with the macOS Dock)
 - **Bundle ID:** `com.deskbar.app`
 
 ## Features
@@ -240,17 +240,17 @@ DeskBar's core features depend on Accessibility (AX) permission. This section de
 
 The macOS Dock and DeskBar both target the screen edge. This section defines how they coexist and how DeskBar safely manages Dock visibility.
 
-**Primary usage scenario.** The user's typical setup is Dock on the left edge with autohide enabled, and DeskBar at the bottom edge. In this configuration, the Dock and DeskBar occupy different edges and do not overlap. DeskBar spans the full screen width at the bottom. When the Dock auto-reveals on the left edge, it overlaps the leftmost portion of the taskbar — this is acceptable because the Dock reveal is transient and the user is interacting with the Dock at that moment, not the taskbar. No special handling is needed.
+**Primary usage scenario.** The user's typical setup is Dock on the left edge with autohide enabled, and DeskBar at the bottom edge. In this configuration, the Dock and DeskBar occupy different edges and do not overlap. DeskBar spans the full screen width at the bottom by default, or shrinks to a centered content-width panel when the user selects a compact layout. When the Dock auto-reveals on the left edge, it overlaps the leftmost portion of the taskbar — this is acceptable because the Dock reveal is transient and the user is interacting with the Dock at that moment, not the taskbar. No special handling is needed.
 
 **Three modes.** The setting "Dock mode" (stored as `dockMode` in UserDefaults) determines how DeskBar interacts with the Dock:
 
 | Mode | Dock state | DeskBar position | Default? |
 |------|-----------|-----------------|----------|
-| `independent` | Unchanged (user manages Dock separately) | Bottom edge of screen, full width | Yes |
+| `independent` | Unchanged (user manages Dock separately) | Bottom edge of screen, width controlled by DeskBar layout setting | Yes |
 | `autoHide` | `autohide = true` | Bottom edge of screen | No |
 | `hidden` | `autohide = true` + `autohide-delay = 1000` | Bottom edge of screen | No |
 
-**Default mode: `independent`.** DeskBar does not modify Dock settings. DeskBar always positions at the bottom edge of the screen: `x = screen.frame.origin.x`, `y = screen.frame.origin.y`, `width = screen.frame.width`, `height = taskbarHeight`. The Dock's position (left, right, or bottom) and visibility are entirely the user's choice. In this mode, DeskBar never writes to `com.apple.dock` defaults — zero risk.
+**Default mode: `independent`.** DeskBar does not modify Dock settings. DeskBar always positions at the bottom edge of the screen. In full-width layout: `x = screen.frame.origin.x`, `y = screen.frame.origin.y`, `width = screen.frame.width`, `height = taskbarHeight`. In compact layouts, width is derived from current DeskBar content, clamped to the display, and centered on the screen. The Dock's position (left, right, or bottom) and visibility are entirely the user's choice. In this mode, DeskBar never writes to `com.apple.dock` defaults — zero risk.
 
 **Dock on left or right (the typical case).** When the Dock is on the left or right edge, DeskBar occupies the full bottom edge with no adjustment. The Dock's `visibleFrame` inset is irrelevant because the Dock and taskbar are on different edges. If the Dock auto-reveals, it temporarily overlaps the taskbar edge — this is the same behavior as any window overlapping the Dock's reveal area.
 
@@ -284,6 +284,8 @@ The taskbar is divided into three zones, separated by subtle vertical dividers. 
 [  Launcher Zone  |  Task Zone  |  Running-App Tray  ]
      (left)           (middle)         (right)
 ```
+
+**Panel layout modes:** The `layoutMode` setting controls the panel width and edge treatment. `fullWidth` keeps the historical full-width bottom bar. `fullWidthGlass` keeps the full-width geometry with rounded glass chrome and a shadow. `compact` shrinks the panel to the current content width, with a minimum width so sparse states still feel intentional. `compactGlass` uses the same centered compact width with rounded glass ends and a shadow.
 
 #### Launcher Zone (leftmost)
 
@@ -516,6 +518,7 @@ Settings table:
 | Setting | Default |
 |---|---|
 | Taskbar height | 40pt |
+| DeskBar layout | `fullWidth` (options: `fullWidth`, `fullWidthGlass`, `compact`, `compactGlass`) |
 | Title font size | 12pt |
 | Max task width | 200pt |
 | Show titles | true |
@@ -527,7 +530,9 @@ Settings table:
 | Dock mode | `independent` (options: `independent`, `autoHide`, `hidden`) |
 | Show over full-screen apps | false |
 | Start at login | false |
-| Show on all monitors | false |
+| Show on all monitors | true |
+| Enable Option-Tab window switcher | true |
+| Tap Command to open Apps launcher | true |
 
 **Milestone:** All settings configurable and persistent.
 

@@ -30,6 +30,7 @@ final class SettingsView: NSView {
     private let dockModePopupButton = NSPopUpButton()
 
     private let taskbarHeightSlider = NSSlider(value: 40, minValue: 30, maxValue: 60, target: nil, action: nil)
+    private let layoutModePopupButton = NSPopUpButton()
     private let titleFontSizeSlider = NSSlider(value: 12, minValue: 8, maxValue: 18, target: nil, action: nil)
     private let maxTaskWidthSlider = NSSlider(value: 200, minValue: 100, maxValue: 400, target: nil, action: nil)
     private let showTitlesCheckbox = NSButton(checkboxWithTitle: "Show titles", target: nil, action: nil)
@@ -44,6 +45,8 @@ final class SettingsView: NSView {
     private let flashAttentionIndicatorsCheckbox = NSButton(checkboxWithTitle: "Flash apps that want attention", target: nil, action: nil)
     private let showProgressIndicatorsCheckbox = NSButton(checkboxWithTitle: "Show app progress indicators", target: nil, action: nil)
     private let enableActivityModeCheckbox = NSButton(checkboxWithTitle: "Activity mode (hold Control for CPU/RAM)", target: nil, action: nil)
+    private let enableWindowSwitcherCheckbox = NSButton(checkboxWithTitle: "Enable Option-Tab window switcher", target: nil, action: nil)
+    private let enableBareCommandLauncherCheckbox = NSButton(checkboxWithTitle: "Tap Command to open Apps launcher", target: nil, action: nil)
 
     private let launcherTableView = NSTableView()
     private let launcherScrollView = NSScrollView()
@@ -91,6 +94,7 @@ final class SettingsView: NSView {
         ])
 
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
+        layoutModePopupButton.addItems(withTitles: ["Full Width", "Full Width Glass", "Compact Centered", "Compact Glass"])
         configureLauncherTableView()
         configureBlacklistTableView()
 
@@ -104,6 +108,7 @@ final class SettingsView: NSView {
         let appearanceTab = NSTabViewItem(identifier: "appearance")
         appearanceTab.label = "Appearance"
         appearanceTab.view = makeFormView(rows: [
+            makeLabeledControlRow(label: "DeskBar layout", control: layoutModePopupButton),
             makeLabeledControlRow(label: "Taskbar height", control: taskbarHeightSlider),
             makeLabeledControlRow(label: "Title font size", control: titleFontSizeSlider),
             makeLabeledControlRow(label: "Max task width", control: maxTaskWidthSlider),
@@ -124,7 +129,9 @@ final class SettingsView: NSView {
             makeCheckboxRow(showProgressIndicatorsCheckbox),
             makeCheckboxRow(enableActivityModeCheckbox),
             makeCheckboxRow(showOverFullscreenAppsCheckbox),
-            makeCheckboxRow(showOnAllMonitorsCheckbox)
+            makeCheckboxRow(showOnAllMonitorsCheckbox),
+            makeCheckboxRow(enableWindowSwitcherCheckbox),
+            makeCheckboxRow(enableBareCommandLauncherCheckbox)
         ])
 
         let launcherTab = NSTabViewItem(identifier: "launcher")
@@ -208,6 +215,9 @@ final class SettingsView: NSView {
         taskbarHeightSlider.target = self
         taskbarHeightSlider.action = #selector(taskbarHeightChanged(_:))
 
+        layoutModePopupButton.target = self
+        layoutModePopupButton.action = #selector(layoutModeChanged(_:))
+
         titleFontSizeSlider.target = self
         titleFontSizeSlider.action = #selector(titleFontSizeChanged(_:))
 
@@ -246,6 +256,12 @@ final class SettingsView: NSView {
 
         enableActivityModeCheckbox.target = self
         enableActivityModeCheckbox.action = #selector(enableActivityModeChanged(_:))
+
+        enableWindowSwitcherCheckbox.target = self
+        enableWindowSwitcherCheckbox.action = #selector(enableWindowSwitcherChanged(_:))
+
+        enableBareCommandLauncherCheckbox.target = self
+        enableBareCommandLauncherCheckbox.action = #selector(enableBareCommandLauncherChanged(_:))
 
         removePinnedAppButton.target = self
         removePinnedAppButton.action = #selector(removePinnedApp(_:))
@@ -286,6 +302,25 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.taskbarHeightSlider.doubleValue = value
+            }
+            .store(in: &cancellables)
+
+        settings.$layoutMode
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                let index: Int
+                switch value {
+                case .fullWidth:
+                    index = 0
+                case .fullWidthGlass:
+                    index = 1
+                case .compact:
+                    index = 2
+                case .compactGlass:
+                    index = 3
+                }
+
+                self?.layoutModePopupButton.selectItem(at: index)
             }
             .store(in: &cancellables)
 
@@ -387,6 +422,20 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.enableActivityModeCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$enableWindowSwitcher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.enableWindowSwitcherCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$enableBareCommandLauncher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.enableBareCommandLauncherCheckbox.state = value ? .on : .off
             }
             .store(in: &cancellables)
     }
@@ -819,6 +868,20 @@ final class SettingsView: NSView {
     }
 
     @objc
+    private func layoutModeChanged(_ sender: NSPopUpButton) {
+        switch sender.indexOfSelectedItem {
+        case 3:
+            settings.layoutMode = .compactGlass
+        case 2:
+            settings.layoutMode = .compact
+        case 1:
+            settings.layoutMode = .fullWidthGlass
+        default:
+            settings.layoutMode = .fullWidth
+        }
+    }
+
+    @objc
     private func titleFontSizeChanged(_ sender: NSSlider) {
         settings.titleFontSize = sender.doubleValue
     }
@@ -888,6 +951,16 @@ final class SettingsView: NSView {
     @objc
     private func enableActivityModeChanged(_ sender: NSButton) {
         settings.enableActivityMode = sender.state == .on
+    }
+
+    @objc
+    private func enableWindowSwitcherChanged(_ sender: NSButton) {
+        settings.enableWindowSwitcher = sender.state == .on
+    }
+
+    @objc
+    private func enableBareCommandLauncherChanged(_ sender: NSButton) {
+        settings.enableBareCommandLauncher = sender.state == .on
     }
 
     @objc

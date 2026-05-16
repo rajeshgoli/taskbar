@@ -31,9 +31,12 @@ final class TaskbarContentView: NSView {
     private let clusterTrailingSpacerView = TaskZoneFlexibleSpacerView()
     private let taskZoneItemSpacing: CGFloat = 8
     private let taskZoneGroupSpacing: CGFloat = 12
+    private let compactTaskZoneSpacerWidth: CGFloat = 8
 
     private let pinnedAppManager: PinnedAppManager
     private let thumbnailService: ThumbnailService?
+    private let openSettingsHandler: () -> Void
+    private let taskZoneContainer = NSView()
     private var cancellables = Set<AnyCancellable>()
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -45,8 +48,11 @@ final class TaskbarContentView: NSView {
     private var groupedTaskOrderState = TaskZoneOrderingState()
     private var ungroupedTaskOrderState = TaskZoneOrderingState()
     private var taskItemViews: [String: NSView] = [:]
+    private var preferredWidthNotificationScheduled = false
     private var isActivityModeActive = false
     private var previousBadgedBundleIdentifiers = Set<String>()
+
+    var preferredWidthDidChange: (() -> Void)?
 
     init(
         windowManager: WindowManager,
@@ -57,7 +63,8 @@ final class TaskbarContentView: NSView {
         blacklistManager: BlacklistManager,
         pinnedAppManager: PinnedAppManager,
         thumbnailService: ThumbnailService? = nil,
-        displayID: CGDirectDisplayID
+        displayID: CGDirectDisplayID,
+        openSettingsHandler: @escaping () -> Void
     ) {
         self.windowManager = windowManager
         self.badgeMonitor = badgeMonitor
@@ -68,6 +75,7 @@ final class TaskbarContentView: NSView {
         self.pinnedAppManager = pinnedAppManager
         self.thumbnailService = thumbnailService
         self.displayID = displayID
+        self.openSettingsHandler = openSettingsHandler
         launcherZoneView = LauncherZoneView(
             settings: settings,
             pinnedAppManager: pinnedAppManager,
@@ -126,6 +134,85 @@ final class TaskbarContentView: NSView {
         rebuildTaskZone()
     }
 
+    func preferredCompactWidth() -> CGFloat {
+        layoutSubtreeIfNeeded()
+        let contentWidth =
+            launcherZoneView.preferredContentWidth() +
+            preferredTaskZoneWidth() +
+            runningAppTrayView.preferredContentWidth() +
+            zonesStackView.edgeInsets.left +
+            zonesStackView.edgeInsets.right
+
+        return ceil(max(contentWidth, 1))
+    }
+
+    private func preferredTaskZoneWidth() -> CGFloat {
+        let leftWidth = preferredWidth(forArrangedSubviewsIn: leftTaskZoneStackView, spacing: taskZoneItemSpacing)
+        let neutralWidth = preferredWidth(forArrangedSubviewsIn: neutralTaskZoneStackView, spacing: taskZoneItemSpacing)
+        let rightWidth = preferredWidth(forArrangedSubviewsIn: rightTaskZoneStackView, spacing: taskZoneItemSpacing)
+        let hasTaskContent = leftWidth > 0 || neutralWidth > 0 || rightWidth > 0
+
+        guard hasTaskContent else {
+            return 0
+        }
+
+        var componentWidths: [CGFloat] = [compactTaskZoneSpacerWidth]
+        if leftWidth > 0 {
+            componentWidths.append(leftWidth)
+        }
+
+        if !leftTaskZoneSeparatorView.isHidden {
+            componentWidths.append(preferredWidth(for: leftTaskZoneSeparatorView))
+        }
+
+        if neutralWidth > 0 {
+            componentWidths.append(neutralWidth)
+        }
+
+        if !rightTaskZoneSeparatorView.isHidden {
+            componentWidths.append(preferredWidth(for: rightTaskZoneSeparatorView))
+        }
+
+        if rightWidth > 0 {
+            componentWidths.append(rightWidth)
+        }
+        componentWidths.append(compactTaskZoneSpacerWidth)
+
+        let spacing = CGFloat(max(componentWidths.count - 1, 0)) * taskZoneGroupSpacing
+        return componentWidths.reduce(0, +) + spacing
+    }
+
+    private func preferredWidth(forArrangedSubviewsIn stackView: NSStackView, spacing: CGFloat) -> CGFloat {
+        let visibleSubviews = stackView.arrangedSubviews.filter { !$0.isHidden }
+        guard !visibleSubviews.isEmpty else {
+            return 0
+        }
+
+        let contentWidth = visibleSubviews.map(preferredWidth(for:)).reduce(0, +)
+        return contentWidth + CGFloat(visibleSubviews.count - 1) * spacing
+    }
+
+    private func preferredWidth(for view: NSView) -> CGFloat {
+        let intrinsicWidth = view.intrinsicContentSize.width
+        if intrinsicWidth != NSView.noIntrinsicMetric, intrinsicWidth > 0 {
+            return intrinsicWidth
+        }
+
+        return max(0, view.fittingSize.width)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = NSMenu()
+        let settingsItem = NSMenuItem(
+            title: "Settings...",
+            action: #selector(openSettingsFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
     private func configureLayout() {
         rootStackView.orientation = .vertical
         rootStackView.alignment = .leading
@@ -174,7 +261,6 @@ final class TaskbarContentView: NSView {
             zonesStackView.trailingAnchor.constraint(equalTo: rootStackView.trailingAnchor)
         ])
 
-        let taskZoneContainer = NSView()
         taskZoneContainer.translatesAutoresizingMaskIntoConstraints = false
         taskZoneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         taskZoneContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -256,6 +342,20 @@ final class TaskbarContentView: NSView {
                 }
 
                 self.rebuildTaskZone()
+            }
+            .store(in: &cancellables)
+
+        windowManager.$windows
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        pinnedAppManager.$pinnedApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
             }
             .store(in: &cancellables)
 
@@ -358,6 +458,7 @@ final class TaskbarContentView: NSView {
 
             removeStaleTaskItemViews(retaining: retainedItemIDs)
             reconcileTaskZone(with: placedViews)
+            schedulePreferredWidthNotification()
             return
         }
 
@@ -380,6 +481,7 @@ final class TaskbarContentView: NSView {
 
         removeStaleTaskItemViews(retaining: retainedItemIDs)
         reconcileTaskZone(with: placedViews)
+        schedulePreferredWidthNotification()
     }
 
     private func scopedVisibleWindows() -> [WindowInfo] {
@@ -401,6 +503,28 @@ final class TaskbarContentView: NSView {
             right: 10
         )
         layoutSubtreeIfNeeded()
+        schedulePreferredWidthNotification()
+    }
+
+    private func schedulePreferredWidthNotification() {
+        guard !preferredWidthNotificationScheduled else {
+            return
+        }
+
+        preferredWidthNotificationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.preferredWidthNotificationScheduled = false
+            self.preferredWidthDidChange?()
+        }
+    }
+
+    @objc
+    private func openSettingsFromContextMenu(_ sender: Any?) {
+        openSettingsHandler()
     }
 
     private func taskButtonView(

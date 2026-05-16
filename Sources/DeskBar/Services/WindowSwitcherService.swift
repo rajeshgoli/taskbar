@@ -38,6 +38,7 @@ final class WindowSwitcherService {
     }
 
     private let windowManager: WindowManager
+    private let settings: TaskbarSettings
     private let accessibilityService: AccessibilityService
     private let thumbnailService: ThumbnailService
     private var eventTap: CFMachPort?
@@ -49,10 +50,12 @@ final class WindowSwitcherService {
 
     init(
         windowManager: WindowManager,
+        settings: TaskbarSettings,
         thumbnailService: ThumbnailService,
         accessibilityService: AccessibilityService = AccessibilityService()
     ) {
         self.windowManager = windowManager
+        self.settings = settings
         self.thumbnailService = thumbnailService
         self.accessibilityService = accessibilityService
         updateForAccessibilityPermissionChange(isGranted: AXIsProcessTrusted())
@@ -213,10 +216,13 @@ final class WindowSwitcherService {
         }
 
         if type == .flagsChanged {
-            if bareCommandDetector.handleFlagsChanged(flags) {
+            if settings.enableBareCommandLauncher,
+               bareCommandDetector.handleFlagsChanged(flags) {
                 DispatchQueue.main.async {
                     AppsLauncher.open()
                 }
+            } else if !settings.enableBareCommandLauncher {
+                bareCommandDetector.cancel()
             }
 
             if !flags.contains(.maskAlternate) {
@@ -245,6 +251,7 @@ final class WindowSwitcherService {
         }
 
         guard keyCode == Self.tabKeyCode,
+              settings.enableWindowSwitcher,
               flags.contains(.maskAlternate),
               !flags.contains(.maskCommand),
               !flags.contains(.maskControl) else {

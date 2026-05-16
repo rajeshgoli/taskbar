@@ -81,6 +81,18 @@ final class RunningAppTrayView: NSStackView {
         rebuildIcons()
     }
 
+    func preferredContentWidth() -> CGFloat {
+        let iconWidth = Self.preferredWidth(
+            forArrangedSubviewsIn: iconsStackView,
+            spacing: iconsStackView.spacing
+        )
+        let dividerWidth = dividerView.isHidden ? 0 : Self.preferredWidth(for: dividerView)
+        let visibleComponentCount = [dividerWidth, iconWidth].filter { $0 > 0 }.count
+        let spacingWidth = CGFloat(max(visibleComponentCount - 1, 0)) * spacing
+
+        return ceil(dividerWidth + iconWidth + spacingWidth)
+    }
+
     private func rebuildIcons() {
         iconsStackView.arrangedSubviews.forEach { view in
             iconsStackView.removeArrangedSubview(view)
@@ -103,5 +115,24 @@ final class RunningAppTrayView: NSStackView {
         }
 
         return windowManager.trayApplications(on: screen)
+    }
+
+    private static func preferredWidth(forArrangedSubviewsIn stackView: NSStackView, spacing: CGFloat) -> CGFloat {
+        let visibleSubviews = stackView.arrangedSubviews.filter { !$0.isHidden }
+        guard !visibleSubviews.isEmpty else {
+            return 0
+        }
+
+        let contentWidth = visibleSubviews.map(preferredWidth(for:)).reduce(0, +)
+        return contentWidth + CGFloat(visibleSubviews.count - 1) * spacing
+    }
+
+    private static func preferredWidth(for view: NSView) -> CGFloat {
+        let intrinsicWidth = view.intrinsicContentSize.width
+        if intrinsicWidth != NSView.noIntrinsicMetric, intrinsicWidth > 0 {
+            return intrinsicWidth
+        }
+
+        return max(0, view.fittingSize.width)
     }
 }
