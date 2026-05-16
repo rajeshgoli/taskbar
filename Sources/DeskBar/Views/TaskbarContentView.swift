@@ -203,6 +203,10 @@ final class TaskbarContentView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        guard shouldOpenSettingsMenu(for: event) else {
+            return
+        }
+
         let menu = NSMenu()
         let settingsItem = NSMenuItem(
             title: "Settings...",
@@ -212,6 +216,32 @@ final class TaskbarContentView: NSView {
         settingsItem.target = self
         menu.addItem(settingsItem)
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    private func shouldOpenSettingsMenu(for event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+
+        guard bounds.contains(point), convertedBounds(of: zonesStackView).contains(point) else {
+            return false
+        }
+
+        let occupiedViews: [NSView] = [
+            bannerButton,
+            launcherZoneView,
+            runningAppTrayView,
+            leftTaskZoneSeparatorView,
+            rightTaskZoneSeparatorView
+        ] + Array(taskItemViews.values)
+
+        return !occupiedViews.contains { view in
+            !view.isHidden &&
+                view.window === window &&
+                convertedBounds(of: view).contains(point)
+        }
+    }
+
+    private func convertedBounds(of view: NSView) -> NSRect {
+        view.convert(view.bounds, to: self)
     }
 
     private func configureLayout() {
