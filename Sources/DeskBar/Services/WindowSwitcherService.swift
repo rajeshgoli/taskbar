@@ -1,6 +1,12 @@
 import AppKit
 import ApplicationServices
 
+enum WindowSwitcherActivationAction: Equatable {
+    case raiseAXWindow
+    case activateApplication
+    case none
+}
+
 final class WindowSwitcherService {
     private static let tabKeyCode: CGKeyCode = 48
     private static let escapeKeyCode: CGKeyCode = 53
@@ -122,6 +128,17 @@ final class WindowSwitcherService {
         }
 
         return (currentIndex + step + candidateIDs.count) % candidateIDs.count
+    }
+
+    static func activationAction(
+        applicationIsRunning: Bool,
+        hasMatchedAXWindow: Bool
+    ) -> WindowSwitcherActivationAction {
+        guard applicationIsRunning else {
+            return .none
+        }
+
+        return hasMatchedAXWindow ? .raiseAXWindow : .activateApplication
     }
 
     private func start() {
@@ -341,19 +358,36 @@ final class WindowSwitcherService {
     }
 
     private func activate(window: WindowInfo) {
-        guard
-            let cgWindowID = window.cgWindowID,
-            let application = NSWorkspace.shared.runningApplications.first(where: {
-                $0.processIdentifier == window.pid
-            }),
-            let element = accessibilityService.enumerateWindows(for: application).first(where: {
-                accessibilityService.getWindowID(for: $0) == cgWindowID
-            })
-        else {
+        guard let application = NSWorkspace.shared.runningApplications.first(where: {
+            $0.processIdentifier == window.pid
+        }) else {
             return
         }
 
-        accessibilityService.raiseAndActivate(element: element, app: application)
+        let element: AXUIElement?
+        if let cgWindowID = window.cgWindowID {
+            element = accessibilityService.enumerateWindows(for: application).first(where: {
+                accessibilityService.getWindowID(for: $0) == cgWindowID
+            })
+        } else {
+            element = nil
+        }
+
+        switch Self.activationAction(
+            applicationIsRunning: true,
+            hasMatchedAXWindow: element != nil
+        ) {
+        case .raiseAXWindow:
+            guard let element else {
+                return
+            }
+            accessibilityService.raiseAndActivate(element: element, app: application)
+        case .activateApplication:
+            application.unhide()
+            _ = application.activate(options: .activateAllWindows)
+        case .none:
+            return
+        }
     }
 
     private static func zOrderedWindowIDs() -> [CGWindowID] {

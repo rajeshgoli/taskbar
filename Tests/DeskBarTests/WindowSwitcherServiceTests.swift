@@ -91,6 +91,36 @@ func nextSelectionContinuesFromSessionIndex() {
     #expect(result == 2)
 }
 
+@Test
+func activationActionRaisesMatchedAXWindow() {
+    #expect(
+        WindowSwitcherService.activationAction(
+            applicationIsRunning: true,
+            hasMatchedAXWindow: true
+        ) == .raiseAXWindow
+    )
+}
+
+@Test
+func activationActionFallsBackToApplicationWhenAXWindowIsMissing() {
+    #expect(
+        WindowSwitcherService.activationAction(
+            applicationIsRunning: true,
+            hasMatchedAXWindow: false
+        ) == .activateApplication
+    )
+}
+
+@Test
+func activationActionNoopsWhenApplicationIsGone() {
+    #expect(
+        WindowSwitcherService.activationAction(
+            applicationIsRunning: false,
+            hasMatchedAXWindow: false
+        ) == .none
+    )
+}
+
 private func window(
     pid: pid_t,
     cgWindowID: CGWindowID,
