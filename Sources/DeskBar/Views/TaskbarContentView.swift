@@ -204,6 +204,7 @@ final class TaskbarContentView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         guard shouldOpenSettingsMenu(for: event) else {
+            super.rightMouseDown(with: event)
             return
         }
 
