@@ -221,6 +221,10 @@ final class WindowManager: ObservableObject {
         )
     }
 
+    func frame(for window: WindowInfo) -> CGRect? {
+        bounds(for: window)
+    }
+
     func layoutSnapshotCandidates() -> [WindowLayoutCaptureCandidate] {
         windows.compactMap { window in
             guard

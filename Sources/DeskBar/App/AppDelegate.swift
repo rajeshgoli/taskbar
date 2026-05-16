@@ -62,7 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windowLayoutSnapshotManager = WindowLayoutSnapshotManager(windowManager: wm)
         self.windowLayoutSnapshotManager = windowLayoutSnapshotManager
 
-        let windowSwitcherService = WindowSwitcherService(windowManager: wm)
+        let windowSwitcherService = WindowSwitcherService(
+            windowManager: wm,
+            thumbnailService: thumbnailService
+        )
         self.windowSwitcherService = windowSwitcherService
 
         configureObservers(

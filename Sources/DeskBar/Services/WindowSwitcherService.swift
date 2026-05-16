@@ -3,19 +3,25 @@ import ApplicationServices
 
 final class WindowSwitcherService {
     private static let tabKeyCode: CGKeyCode = 48
+    private static let escapeKeyCode: CGKeyCode = 53
 
     private let windowManager: WindowManager
     private let accessibilityService: AccessibilityService
+    private let thumbnailService: ThumbnailService
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var overlayPanel: WindowSwitcherPanel?
     private var sessionWindows: [WindowInfo] = []
     private var selectedIndex: Int?
+    private var sessionScreen: NSScreen?
 
     init(
         windowManager: WindowManager,
+        thumbnailService: ThumbnailService,
         accessibilityService: AccessibilityService = AccessibilityService()
     ) {
         self.windowManager = windowManager
+        self.thumbnailService = thumbnailService
         self.accessibilityService = accessibilityService
         updateForAccessibilityPermissionChange(isGranted: AXIsProcessTrusted())
     }
@@ -127,7 +133,7 @@ final class WindowSwitcherService {
     }
 
     private func stop() {
-        endSession()
+        endSession(commitSelection: false)
 
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -165,7 +171,7 @@ final class WindowSwitcherService {
         if type == .flagsChanged {
             if !flags.contains(.maskAlternate) {
                 DispatchQueue.main.async { [weak self] in
-                    self?.endSession()
+                    self?.endSession(commitSelection: true)
                 }
             }
 
@@ -173,6 +179,16 @@ final class WindowSwitcherService {
         }
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        if keyCode == Self.escapeKeyCode, !sessionWindows.isEmpty {
+            if type == .keyDown {
+                DispatchQueue.main.async { [weak self] in
+                    self?.endSession(commitSelection: false)
+                }
+            }
+
+            return nil
+        }
+
         guard keyCode == Self.tabKeyCode,
               flags.contains(.maskAlternate),
               !flags.contains(.maskCommand),
@@ -201,6 +217,7 @@ final class WindowSwitcherService {
                 from: windowManager.windows,
                 zOrderedWindowIDs: Self.zOrderedWindowIDs()
             )
+            sessionScreen = screenForSession(windows: sessionWindows)
             selectedIndex = nil
         }
 
@@ -213,17 +230,74 @@ final class WindowSwitcherService {
             sessionIndex: selectedIndex,
             reverse: reverse
         ) else {
-            endSession()
+            endSession(commitSelection: false)
             return
         }
 
         selectedIndex = nextIndex
-        activate(window: sessionWindows[nextIndex])
+        showOverlay()
     }
 
-    private func endSession() {
+    private func endSession(commitSelection: Bool) {
+        let selectedWindow: WindowInfo?
+        if commitSelection,
+           let selectedIndex,
+           sessionWindows.indices.contains(selectedIndex) {
+            selectedWindow = sessionWindows[selectedIndex]
+        } else {
+            selectedWindow = nil
+        }
+
+        overlayPanel?.closeSwitcher()
+        overlayPanel = nil
         sessionWindows.removeAll()
         selectedIndex = nil
+        sessionScreen = nil
+
+        if let selectedWindow {
+            activate(window: selectedWindow)
+        }
+    }
+
+    private func showOverlay() {
+        guard let selectedIndex,
+              !sessionWindows.isEmpty else {
+            return
+        }
+
+        let screen = sessionScreen ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen else {
+            return
+        }
+
+        let panel = overlayPanel ?? WindowSwitcherPanel(screen: screen)
+        overlayPanel = panel
+        panel.update(
+            screen: screen,
+            items: sessionWindows.map { window in
+                WindowSwitcherItem(
+                    id: window.id,
+                    cgWindowID: window.cgWindowID,
+                    appName: window.appName,
+                    title: window.title.isEmpty ? window.appName : window.title,
+                    icon: window.icon
+                )
+            },
+            selectedIndex: selectedIndex,
+            thumbnailService: thumbnailService
+        )
+        panel.orderFrontRegardless()
+    }
+
+    private func screenForSession(windows: [WindowInfo]) -> NSScreen? {
+        let currentWindow = windows.first
+        if let currentWindow,
+           let frame = windowManager.frame(for: currentWindow),
+           let screen = ScreenGeometry.screen(for: frame) {
+            return screen
+        }
+
+        return NSScreen.main ?? NSScreen.screens.first
     }
 
     private func activate(window: WindowInfo) {
