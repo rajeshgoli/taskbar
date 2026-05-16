@@ -49,6 +49,7 @@ final class TaskbarContentView: NSView {
     private var ungroupedTaskOrderState = TaskZoneOrderingState()
     private var taskItemViews: [String: NSView] = [:]
     private var preferredWidthNotificationScheduled = false
+    private var lastNotifiedPreferredCompactWidth: CGFloat?
     private var isActivityModeActive = false
     private var previousBadgedBundleIdentifiers = Set<String>()
 
@@ -518,6 +519,13 @@ final class TaskbarContentView: NSView {
             }
 
             self.preferredWidthNotificationScheduled = false
+            let width = self.preferredCompactWidth()
+            if let lastNotifiedPreferredCompactWidth = self.lastNotifiedPreferredCompactWidth,
+               abs(lastNotifiedPreferredCompactWidth - width) < 0.5 {
+                return
+            }
+
+            self.lastNotifiedPreferredCompactWidth = width
             self.preferredWidthDidChange?()
         }
     }

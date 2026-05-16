@@ -35,8 +35,8 @@ Lightweight, native, no external dependencies. Does not modify any system settin
 
 ```bash
 # Clone and build
-git clone https://github.com/rajeshgoli/taskbar.git
-cd taskbar
+git clone https://github.com/rajeshgoli/deskbar.git
+cd deskbar
 swift build -c release
 
 # Package into .app bundle
@@ -86,7 +86,7 @@ Accessible via the gear icon in the menu bar.
 | Tab | Options |
 |-----|---------|
 | General | Start at login, Dock mode |
-| Appearance | DeskBar layout, taskbar height, font size, max button width, show titles, thumbnail size |
+| Appearance | DeskBar layout, taskbar height, font size, max button width, show titles, thumbnail size, reset sliders |
 | Behavior | Hover delay, group by app, drag reorder, middle-click closes, attention/progress indicators, activity mode, show over full-screen, multi-monitor, Option-Tab, Command launcher |
 | Launcher | Manage pinned apps |
 | Blacklist | Manage hidden apps |

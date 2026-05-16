@@ -62,4 +62,35 @@ struct TaskbarSettingsTests {
         #expect(settings.enableWindowSwitcher == false)
         #expect(settings.enableBareCommandLauncher == false)
     }
+
+    @Test
+    func resetAppearanceSlidersRestoresDefaults() {
+        let suiteName = "TaskbarSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var settings = TaskbarSettings(defaults: defaults)
+        settings.taskbarHeight = 60
+        settings.titleFontSize = 18
+        settings.maxTaskWidth = 400
+        settings.thumbnailSize = 400
+
+        settings.resetAppearanceSlidersToDefaults()
+
+        #expect(settings.taskbarHeight == TaskbarSettings.defaultTaskbarHeight)
+        #expect(settings.titleFontSize == TaskbarSettings.defaultTitleFontSize)
+        #expect(settings.maxTaskWidth == TaskbarSettings.defaultMaxTaskWidth)
+        #expect(settings.thumbnailSize == TaskbarSettings.defaultThumbnailSize)
+
+        settings = TaskbarSettings(defaults: defaults)
+
+        #expect(settings.taskbarHeight == TaskbarSettings.defaultTaskbarHeight)
+        #expect(settings.titleFontSize == TaskbarSettings.defaultTitleFontSize)
+        #expect(settings.maxTaskWidth == TaskbarSettings.defaultMaxTaskWidth)
+        #expect(settings.thumbnailSize == TaskbarSettings.defaultThumbnailSize)
+    }
 }

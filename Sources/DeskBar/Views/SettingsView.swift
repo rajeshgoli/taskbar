@@ -35,6 +35,7 @@ final class SettingsView: NSView {
     private let maxTaskWidthSlider = NSSlider(value: 200, minValue: 100, maxValue: 400, target: nil, action: nil)
     private let showTitlesCheckbox = NSButton(checkboxWithTitle: "Show titles", target: nil, action: nil)
     private let thumbnailSizeSlider = NSSlider(value: 200, minValue: 100, maxValue: 400, target: nil, action: nil)
+    private let resetAppearanceSlidersButton = NSButton(title: "Reset Sliders to Defaults", target: nil, action: nil)
 
     private let hoverDelaySlider = NSSlider(value: 400, minValue: 100, maxValue: 1000, target: nil, action: nil)
     private let groupingModePopupButton = NSPopUpButton()
@@ -113,7 +114,8 @@ final class SettingsView: NSView {
             makeLabeledControlRow(label: "Title font size", control: titleFontSizeSlider),
             makeLabeledControlRow(label: "Max task width", control: maxTaskWidthSlider),
             makeCheckboxRow(showTitlesCheckbox),
-            makeLabeledControlRow(label: "Thumbnail size", control: thumbnailSizeSlider)
+            makeLabeledControlRow(label: "Thumbnail size", control: thumbnailSizeSlider),
+            makeButtonRow(resetAppearanceSlidersButton)
         ])
 
         groupingModePopupButton.addItems(withTitles: ["Never", "Automatic", "Always"])
@@ -229,6 +231,9 @@ final class SettingsView: NSView {
 
         thumbnailSizeSlider.target = self
         thumbnailSizeSlider.action = #selector(thumbnailSizeChanged(_:))
+
+        resetAppearanceSlidersButton.target = self
+        resetAppearanceSlidersButton.action = #selector(resetAppearanceSliders(_:))
 
         hoverDelaySlider.target = self
         hoverDelaySlider.action = #selector(hoverDelayChanged(_:))
@@ -515,6 +520,20 @@ final class SettingsView: NSView {
         row.distribution = .fill
         row.spacing = 12
         textLabel.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        return row
+    }
+
+    private func makeButtonRow(_ button: NSButton) -> NSView {
+        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let spacerLabel = NSTextField(labelWithString: "")
+        spacerLabel.widthAnchor.constraint(equalToConstant: 160).isActive = true
+
+        let row = NSStackView(views: [spacerLabel, button])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = 12
         return row
     }
 
@@ -899,6 +918,11 @@ final class SettingsView: NSView {
     @objc
     private func thumbnailSizeChanged(_ sender: NSSlider) {
         settings.thumbnailSize = sender.doubleValue
+    }
+
+    @objc
+    private func resetAppearanceSliders(_ sender: NSButton) {
+        settings.resetAppearanceSlidersToDefaults()
     }
 
     @objc

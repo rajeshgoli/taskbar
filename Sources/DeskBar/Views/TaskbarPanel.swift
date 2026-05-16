@@ -11,7 +11,7 @@ final class TaskbarPanel: NSPanel {
 
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
-    private let rootView: NSView
+    private let rootView: TaskbarPanelRootView
     private let visualEffectView: NSVisualEffectView
     private weak var hostedView: NSView?
     private var cancellables = Set<AnyCancellable>()
@@ -31,7 +31,7 @@ final class TaskbarPanel: NSPanel {
             screen: screen
         )
 
-        rootView = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        rootView = TaskbarPanelRootView(settings: settings, frame: NSRect(origin: .zero, size: frame.size))
         visualEffectView = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
         super.init(
             contentRect: frame,
@@ -57,6 +57,7 @@ final class TaskbarPanel: NSPanel {
         visualEffectView.state = .active
         visualEffectView.wantsLayer = true
         rootView.addSubview(visualEffectView)
+        rootView.chromeView = visualEffectView
         contentView = rootView
         updateChromeLayout(animated: false)
 
@@ -117,9 +118,12 @@ final class TaskbarPanel: NSPanel {
             screen: resolvedScreen
         )
 
-        let shouldAnimate = animated && !Self.framesApproximatelyEqual(frame, nextFrame)
-        setFrame(nextFrame, display: true, animate: shouldAnimate)
-        rootView.frame = NSRect(origin: .zero, size: nextFrame.size)
+        let frameChanged = !Self.framesApproximatelyEqual(frame, nextFrame)
+        if frameChanged {
+            setFrame(nextFrame, display: true, animate: animated)
+            rootView.frame = NSRect(origin: .zero, size: nextFrame.size)
+        }
+
         updateChromeLayout(animated: animated)
     }
 
@@ -138,11 +142,14 @@ final class TaskbarPanel: NSPanel {
                 context.duration = 0.18
                 visualEffectView.animator().frame = chromeFrame
             }
-        } else {
+        } else if !Self.framesApproximatelyEqual(visualEffectView.frame, chromeFrame) {
             visualEffectView.frame = chromeFrame
         }
 
-        hostedView?.frame = visualEffectView.bounds
+        let hostedFrame = visualEffectView.bounds
+        if let hostedView, !Self.framesApproximatelyEqual(hostedView.frame, hostedFrame) {
+            hostedView.frame = hostedFrame
+        }
         updateVisualStyle(for: chromeFrame)
     }
 
@@ -216,5 +223,30 @@ final class TaskbarPanel: NSPanel {
 private extension DeskBarLayoutMode {
     var usesCompactWidth: Bool {
         self == .compact || self == .compactGlass
+    }
+}
+
+private final class TaskbarPanelRootView: NSView {
+    private let settings: TaskbarSettings
+    weak var chromeView: NSView?
+
+    init(settings: TaskbarSettings, frame frameRect: NSRect) {
+        self.settings = settings
+        super.init(frame: frameRect)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if settings.layoutMode.usesCompactWidth,
+           let chromeView,
+           !chromeView.frame.contains(point) {
+            return nil
+        }
+
+        return super.hitTest(point)
     }
 }

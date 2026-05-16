@@ -11,7 +11,7 @@ final class ThumbnailPopover: NSPopover {
             thumbnailSize: settings.thumbnailSize
         )
         super.init()
-        behavior = .semitransient
+        behavior = .applicationDefined
         animates = true
         contentViewController = thumbnailViewController
 

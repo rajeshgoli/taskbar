@@ -56,7 +56,7 @@ Rather than work around a buggy third-party app with a suspicious bundle ID, we'
 ### Project Structure
 
 ```
-~/automation/taskbar/
+~/automation/deskbar/
   Package.swift
   SPEC.md                            # This file
   CLAUDE.md                          # Build/test/lint instructions
@@ -533,6 +533,8 @@ Settings table:
 | Show on all monitors | true |
 | Enable Option-Tab window switcher | true |
 | Tap Command to open Apps launcher | true |
+
+Appearance includes a "Reset Sliders to Defaults" action that restores taskbar height, title font size, max task width, and thumbnail size to their default values.
 
 **Milestone:** All settings configurable and persistent.
 

@@ -21,6 +21,11 @@ enum DeskBarLayoutMode: String, CaseIterable {
 }
 
 class TaskbarSettings: ObservableObject {
+    static let defaultTaskbarHeight: CGFloat = 40
+    static let defaultTitleFontSize: CGFloat = 12
+    static let defaultMaxTaskWidth: CGFloat = 200
+    static let defaultThumbnailSize: CGFloat = 200
+
     private let defaults: UserDefaults
 
     @Published var taskbarHeight: CGFloat {
@@ -101,9 +106,9 @@ class TaskbarSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? 40
-        titleFontSize = defaults.object(forKey: "titleFontSize") as? CGFloat ?? 12
-        maxTaskWidth = defaults.object(forKey: "maxTaskWidth") as? CGFloat ?? 200
+        taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? Self.defaultTaskbarHeight
+        titleFontSize = defaults.object(forKey: "titleFontSize") as? CGFloat ?? Self.defaultTitleFontSize
+        maxTaskWidth = defaults.object(forKey: "maxTaskWidth") as? CGFloat ?? Self.defaultMaxTaskWidth
         showTitles = defaults.object(forKey: "showTitles") as? Bool ?? true
         if let rawValue = defaults.string(forKey: "groupingMode"),
            let groupingMode = WindowGroupingMode(rawValue: rawValue) {
@@ -115,7 +120,7 @@ class TaskbarSettings: ObservableObject {
         }
         dragReorder = defaults.object(forKey: "dragReorder") as? Bool ?? true
         middleClickCloses = defaults.object(forKey: "middleClickCloses") as? Bool ?? true
-        thumbnailSize = defaults.object(forKey: "thumbnailSize") as? CGFloat ?? 200
+        thumbnailSize = defaults.object(forKey: "thumbnailSize") as? CGFloat ?? Self.defaultThumbnailSize
         hoverDelay = defaults.object(forKey: "hoverDelay") as? TimeInterval ?? 0.4
         dockMode = DockMode(rawValue: defaults.string(forKey: "dockMode") ?? "") ?? .independent
         showOverFullScreenApps = defaults.object(forKey: "showOverFullScreenApps") as? Bool ?? false
@@ -127,5 +132,12 @@ class TaskbarSettings: ObservableObject {
         layoutMode = DeskBarLayoutMode(rawValue: defaults.string(forKey: "layoutMode") ?? "") ?? .fullWidth
         enableWindowSwitcher = defaults.object(forKey: "enableWindowSwitcher") as? Bool ?? true
         enableBareCommandLauncher = defaults.object(forKey: "enableBareCommandLauncher") as? Bool ?? true
+    }
+
+    func resetAppearanceSlidersToDefaults() {
+        taskbarHeight = Self.defaultTaskbarHeight
+        titleFontSize = Self.defaultTitleFontSize
+        maxTaskWidth = Self.defaultMaxTaskWidth
+        thumbnailSize = Self.defaultThumbnailSize
     }
 }
