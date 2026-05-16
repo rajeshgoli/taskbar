@@ -14,6 +14,7 @@ Lightweight, native, no external dependencies. Does not modify any system settin
 
 - **Three-zone layout** — Launcher (pinned apps) | Task Zone (windows) | Running-App Tray
 - **Per-window switching** — click a task button to raise that specific window, not all windows from the app
+- **AltTab-style window switcher** — Option+Tab cycles individual windows with a bold glass thumbnail overlay
 - **Dock-style right-click menus** — task and launcher menus expose windows plus Show All Windows, Hide, Quit, and launcher options
 - **Real-time updates** — windows appear/disappear as you open/close them, no polling lag
 - **Multi-monitor** — taskbar on every display, each showing only that display's windows
@@ -50,7 +51,7 @@ Then open `/Applications/DeskBar.app`.
 ## First Launch
 
 1. **Accessibility permission** — an amber banner will appear. Click it to open System Settings, then add DeskBar under Privacy & Security > Accessibility.
-2. **Screen Recording permission** (optional, for hover thumbnails) — System Settings > Privacy & Security > Screen Recording > add DeskBar.
+2. **Screen Recording permission** (optional, for hover and switcher thumbnails) — System Settings > Privacy & Security > Screen Recording > add DeskBar.
 3. **Gear icon** in the menu bar — access Settings or Quit.
 
 If you rebuild and reinstall, you may need to re-grant permissions:
@@ -67,8 +68,14 @@ tccutil reset Accessibility com.deskbar.app
 | **Click** the Apps button | Opens the macOS Apps launcher |
 | **Click** a launcher icon | Activates the app (launches if not running) |
 | **Right-click** a launcher icon | Dock-style menu: app-specific actions, window list, Options, Show All Windows, Hide, Quit |
+| **Option+Tab** | Opens the window switcher and advances to the next window |
+| **Shift+Option+Tab** | Moves backward in the window switcher |
+| **Release Option** | Activates the highlighted window |
+| **Escape** while switching | Cancels the switcher without changing windows |
+| **Tap Command by itself** | Opens the macOS Apps launcher |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
+| **Click a tray icon** | Activates the app, or reopens it if it is running without windows |
 | **Drag** task buttons | Reorder; dragged items hold position |
 | **Gear icon** in menu bar | Open Settings or Quit |
 
@@ -98,6 +105,7 @@ Pure AppKit, no SwiftUI. Key components:
 - **WindowManager** — two-tier storage (authoritative + provisional), AXObserver + CGWindowList polling
 - **AccessibilityService** — `_AXUIElementGetWindow` via dlsym with frame-matching fallback
 - **ThumbnailService** — ScreenCaptureKit capture with 2s cache
+- **WindowSwitcherService** — global Option+Tab event tap, glass overlay, and deferred per-window activation
 - **DockManager** — three-mode Dock control with watchdog LaunchAgent for crash recovery
 
 ## License

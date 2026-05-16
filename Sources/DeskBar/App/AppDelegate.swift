@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appStateMonitor: AppStateMonitor?
     private var thumbnailService: ThumbnailService?
     private var windowLayoutSnapshotManager: WindowLayoutSnapshotManager?
+    private var windowSwitcherService: WindowSwitcherService?
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var restoreWindowsMenuItem: NSMenuItem?
@@ -60,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let windowLayoutSnapshotManager = WindowLayoutSnapshotManager(windowManager: wm)
         self.windowLayoutSnapshotManager = windowLayoutSnapshotManager
+
+        let windowSwitcherService = WindowSwitcherService(
+            windowManager: wm,
+            thumbnailService: thumbnailService
+        )
+        self.windowSwitcherService = windowSwitcherService
 
         configureObservers(
             windowManager: wm,
@@ -365,6 +372,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleAccessibilityPermissionChange() {
         contentViews.values.forEach { $0.handleAccessibilityPermissionChange() }
         panels.values.forEach { $0.updateForAccessibilityPermissionChange() }
+        windowSwitcherService?.updateForAccessibilityPermissionChange(
+            isGranted: permissionsManager?.isAccessibilityGranted ?? false
+        )
     }
 
     private func updateRestoreWindowsMenuItem() {

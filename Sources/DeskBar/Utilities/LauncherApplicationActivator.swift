@@ -23,7 +23,15 @@ enum LauncherApplicationActivator {
             return
         }
 
-        launch(bundleIdentifier: bundleIdentifier, applicationURL: applicationURL ?? application.bundleURL)
+        reopen(bundleIdentifier: bundleIdentifier, applicationURL: applicationURL ?? application.bundleURL)
+    }
+
+    static func reopen(bundleIdentifier: String, applicationURL: URL?) {
+        if sendReopenEvent(bundleIdentifier: bundleIdentifier) {
+            return
+        }
+
+        launch(bundleIdentifier: bundleIdentifier, applicationURL: applicationURL)
     }
 
     static func activateOrLaunchForKeyboardShortcut(
@@ -105,6 +113,25 @@ enum LauncherApplicationActivator {
             if let error {
                 print("DeskBar: failed to open launcher application at \(applicationURL.path): \(error)")
             }
+        }
+    }
+
+    private static func sendReopenEvent(bundleIdentifier: String) -> Bool {
+        let target = NSAppleEventDescriptor(bundleIdentifier: bundleIdentifier)
+        let event = NSAppleEventDescriptor(
+            eventClass: AEEventClass(kCoreEventClass),
+            eventID: AEEventID(kAEReopenApplication),
+            targetDescriptor: target,
+            returnID: AEReturnID(kAutoGenerateReturnID),
+            transactionID: AETransactionID(kAnyTransactionID)
+        )
+
+        do {
+            _ = try event.sendEvent(options: [.noReply, .canInteract], timeout: 1)
+            return true
+        } catch {
+            print("DeskBar: failed to send reopen event to \(bundleIdentifier): \(error)")
+            return false
         }
     }
 }

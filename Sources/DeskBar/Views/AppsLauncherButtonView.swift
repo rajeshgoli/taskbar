@@ -1,10 +1,6 @@
 import AppKit
 
 final class AppsLauncherButtonView: NSView {
-    private static let appsBundleIdentifier = "com.apple.apps.launcher"
-    private static let appsPath = "/System/Applications/Apps.app"
-    private static let legacyLaunchpadPath = "/System/Applications/Launchpad.app"
-
     private let iconView = NSImageView()
     private var trackingAreaRef: NSTrackingArea?
     private var isHovered = false {
@@ -67,6 +63,7 @@ final class AppsLauncherButtonView: NSView {
             return
         }
 
+        IconClickFeedback.show(on: iconView)
         openAppsLauncher()
     }
 
@@ -76,6 +73,7 @@ final class AppsLauncherButtonView: NSView {
 
     private func configureSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.image = launcherIcon()
 
@@ -93,32 +91,11 @@ final class AppsLauncherButtonView: NSView {
     }
 
     private func openAppsLauncher() {
-        LauncherApplicationActivator.launch(
-            bundleIdentifier: Self.appsBundleIdentifier,
-            applicationURL: launcherApplicationURL()
-        )
-    }
-
-    private func launcherApplicationURL() -> URL? {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.appsBundleIdentifier) {
-            return url
-        }
-
-        for path in [Self.appsPath, Self.legacyLaunchpadPath] where FileManager.default.fileExists(atPath: path) {
-            return URL(fileURLWithPath: path)
-        }
-
-        return nil
+        AppsLauncher.open()
     }
 
     private func launcherIcon() -> NSImage? {
-        if let url = launcherApplicationURL() {
-            return NSWorkspace.shared.icon(forFile: url.path).scaled(to: NSSize(width: 32, height: 32))
-        }
-
-        let image = NSImage(systemSymbolName: "square.grid.3x3.fill", accessibilityDescription: "Apps")
-        image?.isTemplate = true
-        return image
+        AppsLauncher.icon()
     }
 
     private func showContextMenu(with event: NSEvent) {

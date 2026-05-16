@@ -67,6 +67,8 @@ final class LauncherButtonView: NSView {
             return
         }
 
+        IconClickFeedback.show(on: iconView)
+
         switch actionForPrimaryClick() {
         case .launchApplication:
             launchApplication()
@@ -85,6 +87,7 @@ final class LauncherButtonView: NSView {
 
     private func configureSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
         addSubview(iconView)
@@ -102,16 +105,14 @@ final class LauncherButtonView: NSView {
     private func updateAppearance() {
         toolTip = pinnedApp.name
         iconView.image = displayIcon()
+        iconView.alphaValue = state == .notRunning ? 0.58 : 1.0
+        layer?.backgroundColor = state == .notRunning
+            ? NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            : NSColor.clear.cgColor
     }
 
     private func displayIcon() -> NSImage? {
-        let icon = resolvedIcon()
-
-        guard state == .notRunning else {
-            return icon
-        }
-
-        return icon?.desaturated().withAlpha(0.7)
+        resolvedIcon()
     }
 
     private func resolvedIcon() -> NSImage? {
