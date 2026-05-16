@@ -15,6 +15,8 @@ final class AccessibilityService {
     private var _axGetWindow: AXUIElementGetWindowFunc?
     private var _getProcessForPID: GetProcessForPIDFunc?
     private var _setFrontProcessWithOptions: SetFrontProcessWithOptionsFunc?
+    private var activationRequestID = UUID()
+    private var delayedActivationWorkItems: [DispatchWorkItem] = []
 
     init() {
         let symbolHandle = dlopen(nil, RTLD_LAZY)
@@ -75,6 +77,10 @@ final class AccessibilityService {
 
     @discardableResult
     func raiseAndActivate(element: AXUIElement, app: NSRunningApplication) -> Bool {
+        cancelDelayedActivationWorkItems()
+        let requestID = UUID()
+        activationRequestID = requestID
+
         let preservedDisplayWindows = topmostWindowsOnOtherDisplays(excludingDisplayFor: element)
         let didFocus = focusAndRaise(element: element, app: app)
 
@@ -84,25 +90,79 @@ final class AccessibilityService {
 
         let didActivate = activateFrontWindowOnly(app: app) || app.activate()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard !app.isTerminated else {
-                return
-            }
-
-            self?.restorePreservedDisplayWindows(preservedDisplayWindows)
-            _ = self?.focusAndRaise(element: element, app: app)
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            guard !app.isTerminated else {
-                return
-            }
-
-            self?.restorePreservedDisplayWindows(preservedDisplayWindows)
-            _ = self?.focusAndRaise(element: element, app: app)
-        }
+        scheduleDelayedActivationRefocus(
+            after: 0.05,
+            requestID: requestID,
+            element: element,
+            app: app,
+            preservedDisplayWindows: preservedDisplayWindows
+        )
+        scheduleDelayedActivationRefocus(
+            after: 0.18,
+            requestID: requestID,
+            element: element,
+            app: app,
+            preservedDisplayWindows: preservedDisplayWindows
+        )
 
         return didFocus || didActivate
+    }
+
+    private func scheduleDelayedActivationRefocus(
+        after delay: TimeInterval,
+        requestID: UUID,
+        element: AXUIElement,
+        app: NSRunningApplication,
+        preservedDisplayWindows: [PreservedDisplayWindow]
+    ) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard
+                let self,
+                self.activationRequestID == requestID,
+                !app.isTerminated,
+                self.shouldContinueDelayedActivation(element: element, app: app)
+            else {
+                return
+            }
+
+            self.restorePreservedDisplayWindows(preservedDisplayWindows)
+
+            guard
+                self.activationRequestID == requestID,
+                self.shouldContinueDelayedActivation(element: element, app: app)
+            else {
+                return
+            }
+
+            _ = self.focusAndRaise(element: element, app: app)
+        }
+
+        delayedActivationWorkItems.append(workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelDelayedActivationWorkItems() {
+        for workItem in delayedActivationWorkItems {
+            workItem.cancel()
+        }
+        delayedActivationWorkItems.removeAll()
+    }
+
+    private func shouldContinueDelayedActivation(element: AXUIElement, app: NSRunningApplication) -> Bool {
+        if let frontmostApplication = NSWorkspace.shared.frontmostApplication,
+           frontmostApplication.processIdentifier != app.processIdentifier,
+           frontmostApplication.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            return false
+        }
+
+        guard
+            app.isActive,
+            let focusedWindow = focusedWindow(for: app)
+        else {
+            return true
+        }
+
+        return isSameWindow(focusedWindow, element)
     }
 
     private func activateFrontWindowOnly(app: NSRunningApplication) -> Bool {
@@ -225,6 +285,23 @@ final class AccessibilityService {
         }
 
         return false
+    }
+
+    private func focusedWindow(for app: NSRunningApplication) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        return copyAXUIElementAttribute(
+            for: appElement,
+            attribute: kAXFocusedWindowAttribute as String
+        )
+    }
+
+    private func isSameWindow(_ lhs: AXUIElement, _ rhs: AXUIElement) -> Bool {
+        if let lhsWindowID = getWindowID(for: lhs),
+           let rhsWindowID = getWindowID(for: rhs) {
+            return lhsWindowID == rhsWindowID
+        }
+
+        return CFEqual(lhs, rhs)
     }
 
     @discardableResult

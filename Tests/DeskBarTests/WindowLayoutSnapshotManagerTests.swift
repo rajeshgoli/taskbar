@@ -259,6 +259,36 @@ func liveWindowMatchingAllowsWindowIDWhenFallbackIsDisabled() {
     #expect(result?.cgWindowID == 42)
 }
 
+@Test
+func liveWindowMatchingIndexSkipsConsumedFallbackMatch() {
+    let snapshot = windowSnapshot(
+        pid: 11,
+        cgWindowID: nil,
+        bundleIdentifier: "com.example.app",
+        title: "Closed Window"
+    )
+    let onlyRemainingWindow = liveWindow(
+        pid: 20,
+        cgWindowID: 100,
+        bundleIdentifier: "com.example.app",
+        title: "Remaining Window"
+    )
+    let liveWindows = [onlyRemainingWindow]
+
+    let firstMatch = WindowLayoutSnapshotManager.matchingLiveWindowIndex(
+        for: snapshot,
+        in: Array(liveWindows.enumerated())
+    )
+    let consumedIndexes = Set([firstMatch?.index].compactMap { $0 })
+    let secondMatch = WindowLayoutSnapshotManager.matchingLiveWindowIndex(
+        for: snapshot,
+        in: liveWindows.enumerated().filter { !consumedIndexes.contains($0.offset) }
+    )
+
+    #expect(firstMatch?.index == 0)
+    #expect(secondMatch == nil)
+}
+
 private func windowSnapshot(
     pid: pid_t,
     cgWindowID: CGWindowID?,

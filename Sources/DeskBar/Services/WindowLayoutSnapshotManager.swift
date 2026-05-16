@@ -273,9 +273,23 @@ final class WindowLayoutSnapshotManager: ObservableObject {
         in liveWindows: [WindowLayoutLiveWindow],
         allowsFallback: Bool = true
     ) -> WindowLayoutLiveWindow? {
+        matchingLiveWindowIndex(
+            for: snapshot,
+            in: Array(liveWindows.enumerated()),
+            allowsFallback: allowsFallback
+        )?.liveWindow
+    }
+
+    static func matchingLiveWindowIndex(
+        for snapshot: WindowLayoutWindowSnapshot,
+        in indexedLiveWindows: [(offset: Int, element: WindowLayoutLiveWindow)],
+        allowsFallback: Bool = true
+    ) -> (index: Int, liveWindow: WindowLayoutLiveWindow)? {
         if let cgWindowID = snapshot.cgWindowID,
-           let match = liveWindows.first(where: { $0.pid == snapshot.pid && $0.cgWindowID == cgWindowID }) {
-            return match
+           let match = indexedLiveWindows.first(where: {
+               $0.element.pid == snapshot.pid && $0.element.cgWindowID == cgWindowID
+           }) {
+            return (match.offset, match.element)
         }
 
         guard allowsFallback else {
@@ -283,18 +297,18 @@ final class WindowLayoutSnapshotManager: ObservableObject {
         }
 
         if let bundleIdentifier = snapshot.bundleIdentifier, !snapshot.title.isEmpty {
-            let titleMatches = liveWindows.filter {
-                $0.bundleIdentifier == bundleIdentifier && $0.title == snapshot.title
+            let titleMatches = indexedLiveWindows.filter {
+                $0.element.bundleIdentifier == bundleIdentifier && $0.element.title == snapshot.title
             }
             if titleMatches.count == 1 {
-                return titleMatches[0]
+                return (titleMatches[0].offset, titleMatches[0].element)
             }
         }
 
         if let bundleIdentifier = snapshot.bundleIdentifier {
-            let bundleMatches = liveWindows.filter { $0.bundleIdentifier == bundleIdentifier }
+            let bundleMatches = indexedLiveWindows.filter { $0.element.bundleIdentifier == bundleIdentifier }
             if bundleMatches.count == 1 {
-                return bundleMatches[0]
+                return (bundleMatches[0].offset, bundleMatches[0].element)
             }
         }
 
@@ -409,18 +423,36 @@ final class WindowLayoutSnapshotManager: ObservableObject {
         }
 
         let liveWindows = currentLiveWindows()
+        var matchedLiveWindowIndexes = Set<Int>()
 
         for capturedWindow in snapshot.windows {
             guard
                 !capturedWindow.isMinimized,
                 !capturedWindow.isHidden,
                 !capturedWindow.isFullScreen,
-                let currentDisplay = displayMapping[capturedWindow.displayKey],
-                let liveWindow = Self.matchingLiveWindow(
+                let currentDisplay = displayMapping[capturedWindow.displayKey]
+            else {
+                continue
+            }
+
+            let availableLiveWindows = liveWindows.enumerated().filter {
+                !matchedLiveWindowIndexes.contains($0.offset)
+            }
+
+            guard
+                let matchedLiveWindow = Self.matchingLiveWindowIndex(
                     for: capturedWindow,
-                    in: liveWindows,
+                    in: availableLiveWindows,
                     allowsFallback: manual
-                ),
+                )
+            else {
+                continue
+            }
+
+            matchedLiveWindowIndexes.insert(matchedLiveWindow.index)
+            let liveWindow = matchedLiveWindow.liveWindow
+
+            guard
                 !liveWindow.isMinimized,
                 !liveWindow.isHidden,
                 !liveWindow.isFullScreen,
