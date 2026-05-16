@@ -7,6 +7,10 @@ final class ThumbnailPopover: NSPopover, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var localMouseDownMonitor: Any?
     private var globalMouseDownMonitor: Any?
+    private var localKeyboardMonitor: Any?
+    private var globalKeyboardMonitor: Any?
+    private var appResignActiveObserver: NSObjectProtocol?
+    private var workspaceActivateObserver: NSObjectProtocol?
 
     init(settings: TaskbarSettings) {
         thumbnailViewController = ThumbnailPopoverViewController(
@@ -56,6 +60,7 @@ final class ThumbnailPopover: NSPopover, NSPopoverDelegate {
         }
 
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        let keyboardEventMask: NSEvent.EventTypeMask = [.keyDown, .flagsChanged]
 
         localMouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) { [weak self] event in
             self?.closeUnlessEventTargetsPopover(event)
@@ -66,6 +71,33 @@ final class ThumbnailPopover: NSPopover, NSPopoverDelegate {
             DispatchQueue.main.async {
                 self?.close()
             }
+        }
+
+        localKeyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: keyboardEventMask) { [weak self] event in
+            self?.close()
+            return event
+        }
+
+        globalKeyboardMonitor = NSEvent.addGlobalMonitorForEvents(matching: keyboardEventMask) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.close()
+            }
+        }
+
+        appResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            self?.close()
+        }
+
+        workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.close()
         }
     }
 
@@ -90,6 +122,26 @@ final class ThumbnailPopover: NSPopover, NSPopoverDelegate {
         if let globalMouseDownMonitor {
             NSEvent.removeMonitor(globalMouseDownMonitor)
             self.globalMouseDownMonitor = nil
+        }
+
+        if let localKeyboardMonitor {
+            NSEvent.removeMonitor(localKeyboardMonitor)
+            self.localKeyboardMonitor = nil
+        }
+
+        if let globalKeyboardMonitor {
+            NSEvent.removeMonitor(globalKeyboardMonitor)
+            self.globalKeyboardMonitor = nil
+        }
+
+        if let appResignActiveObserver {
+            NotificationCenter.default.removeObserver(appResignActiveObserver)
+            self.appResignActiveObserver = nil
+        }
+
+        if let workspaceActivateObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceActivateObserver)
+            self.workspaceActivateObserver = nil
         }
     }
 }
