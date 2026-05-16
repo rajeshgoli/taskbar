@@ -75,6 +75,7 @@ tccutil reset Accessibility com.deskbar.app
 | **Tap Command by itself** | Opens the macOS Apps launcher |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
+| **Click a tray icon** | Activates the app, or reopens it if it is running without windows |
 | **Drag** task buttons | Reorder; dragged items hold position |
 | **Gear icon** in menu bar | Open Settings or Quit |
 
