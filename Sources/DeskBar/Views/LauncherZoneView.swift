@@ -49,6 +49,18 @@ final class LauncherZoneView: NSStackView {
         rebuildButtons()
     }
 
+    func preferredContentWidth() -> CGFloat {
+        let buttonWidth = Self.preferredWidth(
+            forArrangedSubviewsIn: buttonsStackView,
+            spacing: buttonsStackView.spacing
+        )
+        let dividerWidth = dividerView.isHidden ? 0 : Self.preferredWidth(for: dividerView)
+        let visibleComponentCount = [buttonWidth, dividerWidth].filter { $0 > 0 }.count
+        let spacingWidth = CGFloat(max(visibleComponentCount - 1, 0)) * spacing
+
+        return ceil(buttonWidth + dividerWidth + spacingWidth)
+    }
+
     private func configureButtonsStackView() {
         buttonsStackView.orientation = .horizontal
         buttonsStackView.alignment = .centerY
@@ -192,6 +204,25 @@ final class LauncherZoneView: NSStackView {
         }
 
         return windowManager.windows(on: screen)
+    }
+
+    private static func preferredWidth(forArrangedSubviewsIn stackView: NSStackView, spacing: CGFloat) -> CGFloat {
+        let visibleSubviews = stackView.arrangedSubviews.filter { !$0.isHidden }
+        guard !visibleSubviews.isEmpty else {
+            return 0
+        }
+
+        let contentWidth = visibleSubviews.map(preferredWidth(for:)).reduce(0, +)
+        return contentWidth + CGFloat(visibleSubviews.count - 1) * spacing
+    }
+
+    private static func preferredWidth(for view: NSView) -> CGFloat {
+        let intrinsicWidth = view.intrinsicContentSize.width
+        if intrinsicWidth != NSView.noIntrinsicMetric, intrinsicWidth > 0 {
+            return intrinsicWidth
+        }
+
+        return max(0, view.fittingSize.width)
     }
 
     private func makeLauncherDragConfiguration(for bundleIdentifier: String) -> TaskButtonDragConfiguration {
