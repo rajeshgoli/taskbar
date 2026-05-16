@@ -120,7 +120,7 @@ final class AccessibilityService {
                 let self,
                 self.activationRequestID == requestID,
                 !app.isTerminated,
-                self.shouldContinueDelayedActivation(element: element, app: app)
+                self.shouldContinueDelayedActivation(app: app)
             else {
                 return
             }
@@ -129,7 +129,7 @@ final class AccessibilityService {
 
             guard
                 self.activationRequestID == requestID,
-                self.shouldContinueDelayedActivation(element: element, app: app)
+                self.shouldContinueDelayedActivation(app: app)
             else {
                 return
             }
@@ -148,21 +148,14 @@ final class AccessibilityService {
         delayedActivationWorkItems.removeAll()
     }
 
-    private func shouldContinueDelayedActivation(element: AXUIElement, app: NSRunningApplication) -> Bool {
+    private func shouldContinueDelayedActivation(app: NSRunningApplication) -> Bool {
         if let frontmostApplication = NSWorkspace.shared.frontmostApplication,
            frontmostApplication.processIdentifier != app.processIdentifier,
            frontmostApplication.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             return false
         }
 
-        guard
-            app.isActive,
-            let focusedWindow = focusedWindow(for: app)
-        else {
-            return true
-        }
-
-        return isSameWindow(focusedWindow, element)
+        return true
     }
 
     private func activateFrontWindowOnly(app: NSRunningApplication) -> Bool {
@@ -285,23 +278,6 @@ final class AccessibilityService {
         }
 
         return false
-    }
-
-    private func focusedWindow(for app: NSRunningApplication) -> AXUIElement? {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        return copyAXUIElementAttribute(
-            for: appElement,
-            attribute: kAXFocusedWindowAttribute as String
-        )
-    }
-
-    private func isSameWindow(_ lhs: AXUIElement, _ rhs: AXUIElement) -> Bool {
-        if let lhsWindowID = getWindowID(for: lhs),
-           let rhsWindowID = getWindowID(for: rhs) {
-            return lhsWindowID == rhsWindowID
-        }
-
-        return CFEqual(lhs, rhs)
     }
 
     @discardableResult

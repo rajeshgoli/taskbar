@@ -305,13 +305,6 @@ final class WindowLayoutSnapshotManager: ObservableObject {
             }
         }
 
-        if let bundleIdentifier = snapshot.bundleIdentifier {
-            let bundleMatches = indexedLiveWindows.filter { $0.element.bundleIdentifier == bundleIdentifier }
-            if bundleMatches.count == 1 {
-                return (bundleMatches[0].offset, bundleMatches[0].element)
-            }
-        }
-
         return nil
     }
 
