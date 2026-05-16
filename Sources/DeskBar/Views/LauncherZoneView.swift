@@ -394,6 +394,8 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
             return
         }
 
+        IconClickFeedback.show(on: iconView)
+
         switch actionForPrimaryClick() {
         case .launchApplication:
             launchApplication()
@@ -412,6 +414,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
 
     private func configureSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
         dropIndicatorView.translatesAutoresizingMaskIntoConstraints = false
@@ -446,16 +449,14 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     private func updateAppearance() {
         toolTip = pinnedApp.name
         iconView.image = displayIcon()
+        iconView.alphaValue = state == .notRunning ? 0.58 : 1.0
+        layer?.backgroundColor = state == .notRunning
+            ? NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            : NSColor.clear.cgColor
     }
 
     private func displayIcon() -> NSImage? {
-        let icon = resolvedIcon()
-
-        guard state == .notRunning else {
-            return icon
-        }
-
-        return icon?.desaturated().withAlpha(0.7)
+        resolvedIcon()
     }
 
     private func resolvedIcon() -> NSImage? {

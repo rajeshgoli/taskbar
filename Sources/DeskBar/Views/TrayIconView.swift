@@ -1,20 +1,16 @@
 import AppKit
-import ApplicationServices
 
 final class TrayIconView: NSView {
     private let application: NSRunningApplication
     private let pinnedAppManager: PinnedAppManager
-    private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
 
     init(
         application: NSRunningApplication,
-        pinnedAppManager: PinnedAppManager,
-        accessibilityService: AccessibilityService = AccessibilityService()
+        pinnedAppManager: PinnedAppManager
     ) {
         self.application = application
         self.pinnedAppManager = pinnedAppManager
-        self.accessibilityService = accessibilityService
         super.init(frame: .zero)
 
         translatesAutoresizingMaskIntoConstraints = false
@@ -42,7 +38,7 @@ final class TrayIconView: NSView {
             return
         }
 
-        showClickFeedback()
+        IconClickFeedback.show(on: iconView)
         activateApplication()
     }
 
@@ -70,8 +66,7 @@ final class TrayIconView: NSView {
 
     private func activateApplication() {
         switch TrayActivationPlanner.action(
-            bundleIdentifier: application.bundleIdentifier,
-            hasAnyWindows: hasAnyApplicationWindows()
+            bundleIdentifier: application.bundleIdentifier
         ) {
         case .activateApplication:
             activateOrReopenApplication(shouldReopen: false)
@@ -95,36 +90,6 @@ final class TrayIconView: NSView {
             applicationURL: application.bundleURL,
             shouldReopen: shouldReopen
         )
-    }
-
-    private func hasAnyApplicationWindows() -> Bool? {
-        if AXIsProcessTrusted() {
-            let windows = accessibilityService.enumerateWindows(for: application)
-            if !windows.isEmpty {
-                return true
-            }
-        }
-
-        return LauncherApplicationActivator.hasCGWindows(for: application)
-    }
-
-    private func showClickFeedback() {
-        guard let layer = iconView.layer else {
-            return
-        }
-
-        layer.removeAnimation(forKey: "deskbar.trayClickBounce")
-
-        let animation = CAKeyframeAnimation(keyPath: "transform.scale")
-        animation.values = [1.0, 1.18, 0.94, 1.0]
-        animation.keyTimes = [0, 0.35, 0.7, 1]
-        animation.duration = 0.24
-        animation.timingFunctions = [
-            CAMediaTimingFunction(name: .easeOut),
-            CAMediaTimingFunction(name: .easeInEaseOut),
-            CAMediaTimingFunction(name: .easeOut)
-        ]
-        layer.add(animation, forKey: "deskbar.trayClickBounce")
     }
 
     private func makeContextMenu() -> NSMenu {

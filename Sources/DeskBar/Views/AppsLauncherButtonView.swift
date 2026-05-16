@@ -63,6 +63,7 @@ final class AppsLauncherButtonView: NSView {
             return
         }
 
+        IconClickFeedback.show(on: iconView)
         openAppsLauncher()
     }
 
@@ -72,6 +73,7 @@ final class AppsLauncherButtonView: NSView {
 
     private func configureSubviews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.image = launcherIcon()
 

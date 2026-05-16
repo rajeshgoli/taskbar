@@ -2,31 +2,19 @@ import Testing
 @testable import DeskBar
 
 @Test
-func trayActivationPlannerActivatesApplicationsWithWindows() {
+func trayActivationPlannerReopensBundledApplications() {
     #expect(
         TrayActivationPlanner.action(
-            bundleIdentifier: "com.example.alpha",
-            hasAnyWindows: true
-        ) == .activateApplication
-    )
-}
-
-@Test
-func trayActivationPlannerReopensApplicationsWithoutWindows() {
-    #expect(
-        TrayActivationPlanner.action(
-            bundleIdentifier: "com.example.alpha",
-            hasAnyWindows: false
+            bundleIdentifier: "com.example.alpha"
         ) == .reopenApplication
     )
 }
 
 @Test
-func trayActivationPlannerActivatesWhenWindowStateIsUnknown() {
+func trayActivationPlannerActivatesUnbundledApplications() {
     #expect(
         TrayActivationPlanner.action(
-            bundleIdentifier: "com.example.alpha",
-            hasAnyWindows: nil
+            bundleIdentifier: nil
         ) == .activateApplication
     )
 }
@@ -35,8 +23,7 @@ func trayActivationPlannerActivatesWhenWindowStateIsUnknown() {
 func trayActivationPlannerOpensFinderWindow() {
     #expect(
         TrayActivationPlanner.action(
-            bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier,
-            hasAnyWindows: true
+            bundleIdentifier: LauncherActivationPlanner.finderBundleIdentifier
         ) == .openFinderWindow
     )
 }
