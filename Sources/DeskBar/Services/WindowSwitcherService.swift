@@ -46,6 +46,7 @@ final class WindowSwitcherService {
     private var overlayPanels: [CGDirectDisplayID: WindowSwitcherPanel] = [:]
     private var sessionWindows: [WindowInfo] = []
     private var selectedIndex: Int?
+    private var thumbnailProvider: WindowSwitcherThumbnailProvider?
     private var bareCommandDetector = BareCommandShortcutDetector()
 
     init(
@@ -175,7 +176,9 @@ final class WindowSwitcherService {
     }
 
     private func stop() {
-        endSession(commitSelection: false)
+        runOnMainActorSynchronously {
+            self.endSession(commitSelection: false)
+        }
 
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -187,6 +190,21 @@ final class WindowSwitcherService {
 
         runLoopSource = nil
         eventTap = nil
+    }
+
+    private func runOnMainActorSynchronously(_ operation: @MainActor @escaping () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                operation()
+            }
+            return
+        }
+
+        DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                operation()
+            }
+        }
     }
 
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -226,7 +244,7 @@ final class WindowSwitcherService {
             }
 
             if !flags.contains(.maskAlternate) {
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.endSession(commitSelection: true)
                 }
             }
@@ -238,7 +256,7 @@ final class WindowSwitcherService {
         if keyCode == Self.escapeKeyCode, !sessionWindows.isEmpty {
             if type == .keyDown {
                 bareCommandDetector.handleKeyDown()
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.endSession(commitSelection: false)
                 }
             }
@@ -260,7 +278,7 @@ final class WindowSwitcherService {
 
         if type == .keyDown {
             let reverse = flags.contains(.maskShift)
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.cycleWindow(reverse: reverse)
             }
         }
@@ -268,6 +286,7 @@ final class WindowSwitcherService {
         return nil
     }
 
+    @MainActor
     private func cycleWindow(reverse: Bool) {
         guard AXIsProcessTrusted() else {
             return
@@ -280,6 +299,7 @@ final class WindowSwitcherService {
                 zOrderedWindowIDs: Self.zOrderedWindowIDs()
             )
             selectedIndex = nil
+            thumbnailProvider = WindowSwitcherThumbnailProvider(thumbnailService: thumbnailService)
         }
 
         let candidateIDs = sessionWindows.map(\.id)
@@ -299,6 +319,7 @@ final class WindowSwitcherService {
         showOverlay()
     }
 
+    @MainActor
     private func endSession(commitSelection: Bool) {
         let selectedWindow: WindowInfo?
         if commitSelection,
@@ -310,6 +331,8 @@ final class WindowSwitcherService {
         }
 
         closeOverlayPanels()
+        thumbnailProvider?.cancel()
+        thumbnailProvider = nil
         sessionWindows.removeAll()
         selectedIndex = nil
 
@@ -318,11 +341,14 @@ final class WindowSwitcherService {
         }
     }
 
+    @MainActor
     private func showOverlay() {
         guard let selectedIndex,
               !sessionWindows.isEmpty else {
             return
         }
+        let thumbnailProvider = self.thumbnailProvider ?? WindowSwitcherThumbnailProvider(thumbnailService: thumbnailService)
+        self.thumbnailProvider = thumbnailProvider
 
         let items = sessionWindows.map { window in
             WindowSwitcherItem(
@@ -349,7 +375,7 @@ final class WindowSwitcherService {
                 screen: screen,
                 items: items,
                 selectedIndex: selectedIndex,
-                thumbnailService: thumbnailService
+                thumbnailProvider: thumbnailProvider
             )
             panel.orderFrontRegardless()
         }
@@ -359,11 +385,13 @@ final class WindowSwitcherService {
         }
     }
 
+    @MainActor
     private func closeOverlayPanels() {
         overlayPanels.values.forEach { $0.closeSwitcher() }
         overlayPanels.removeAll()
     }
 
+    @MainActor
     private func activate(window: WindowInfo) {
         guard let application = NSWorkspace.shared.runningApplications.first(where: {
             $0.processIdentifier == window.pid
