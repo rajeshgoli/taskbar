@@ -54,7 +54,67 @@ final class ThumbnailService: ObservableObject {
             return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
-        guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+        let windowsByID = Dictionary(uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) })
+        return await captureThumbnail(
+            windowID: windowID,
+            size: size,
+            screenCaptureWindowsByID: windowsByID
+        )
+    }
+
+    func cachedThumbnail(windowID: CGWindowID) -> NSImage? {
+        guard windowID != 0 else {
+            return nil
+        }
+
+        pruneExpiredCache()
+        guard let cached = cache[windowID], cached.expirationDate > Date() else {
+            return nil
+        }
+
+        return cached.image
+    }
+
+    func makeCaptureSession() async -> ThumbnailCaptureSession {
+        pruneExpiredCache()
+
+        guard CGPreflightScreenCaptureAccess() else {
+            isScreenRecordingGranted = false
+            return ThumbnailCaptureSession(
+                thumbnailService: self,
+                screenCaptureWindowsByID: nil
+            )
+        }
+
+        isScreenRecordingGranted = true
+
+        guard let content = try? await SCShareableContent.current else {
+            return ThumbnailCaptureSession(
+                thumbnailService: self,
+                screenCaptureWindowsByID: nil
+            )
+        }
+
+        return ThumbnailCaptureSession(
+            thumbnailService: self,
+            screenCaptureWindowsByID: Dictionary(uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) })
+        )
+    }
+
+    fileprivate func captureThumbnail(
+        windowID: CGWindowID,
+        size: CGSize,
+        screenCaptureWindowsByID: [CGWindowID: SCWindow]?
+    ) async -> NSImage? {
+        guard windowID != 0 else {
+            return nil
+        }
+
+        if let cached = cachedThumbnail(windowID: windowID) {
+            return cached
+        }
+
+        guard let window = screenCaptureWindowsByID?[windowID] else {
             return cachedLegacyThumbnail(windowID: windowID, size: size)
         }
 
@@ -115,4 +175,29 @@ final class ThumbnailService: ObservableObject {
 private struct CachedThumbnail {
     let image: NSImage
     let expirationDate: Date
+}
+
+@MainActor
+final class ThumbnailCaptureSession {
+    private weak var thumbnailService: ThumbnailService?
+    private let screenCaptureWindowsByID: [CGWindowID: SCWindow]?
+
+    init(
+        thumbnailService: ThumbnailService,
+        screenCaptureWindowsByID: [CGWindowID: SCWindow]?
+    ) {
+        self.thumbnailService = thumbnailService
+        self.screenCaptureWindowsByID = screenCaptureWindowsByID
+    }
+
+    func captureThumbnail(
+        windowID: CGWindowID,
+        size: CGSize
+    ) async -> NSImage? {
+        await thumbnailService?.captureThumbnail(
+            windowID: windowID,
+            size: size,
+            screenCaptureWindowsByID: screenCaptureWindowsByID
+        )
+    }
 }

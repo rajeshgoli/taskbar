@@ -8,6 +8,126 @@ struct WindowSwitcherItem: Equatable {
     let icon: NSImage?
 }
 
+@MainActor
+final class WindowSwitcherThumbnailProvider {
+    typealias Completion = (NSImage?) -> Void
+
+    private let thumbnailService: ThumbnailService
+    private let thumbnailSize: CGSize
+    private var captureSessionTask: Task<ThumbnailCaptureSession, Never>?
+    private var workerTask: Task<Void, Never>?
+    private var pendingWindowIDs: [CGWindowID] = []
+    private var pendingWindowIDSet = Set<CGWindowID>()
+    private var inFlightWindowIDs = Set<CGWindowID>()
+    private var completionsByWindowID: [CGWindowID: [Completion]] = [:]
+
+    init(
+        thumbnailService: ThumbnailService,
+        thumbnailSize: CGSize = CGSize(width: 360, height: 230)
+    ) {
+        self.thumbnailService = thumbnailService
+        self.thumbnailSize = thumbnailSize
+    }
+
+    func cachedThumbnail(for windowID: CGWindowID) -> NSImage? {
+        thumbnailService.cachedThumbnail(windowID: windowID)
+    }
+
+    func requestThumbnail(
+        windowID: CGWindowID,
+        completion: @escaping Completion
+    ) {
+        guard windowID != 0 else {
+            completion(nil)
+            return
+        }
+
+        if let cachedThumbnail = cachedThumbnail(for: windowID) {
+            completion(cachedThumbnail)
+            return
+        }
+
+        completionsByWindowID[windowID, default: []].append(completion)
+
+        if !pendingWindowIDSet.contains(windowID), !inFlightWindowIDs.contains(windowID) {
+            pendingWindowIDs.append(windowID)
+            pendingWindowIDSet.insert(windowID)
+        }
+
+        startWorkerIfNeeded()
+    }
+
+    func prioritize(windowID: CGWindowID) {
+        guard let index = pendingWindowIDs.firstIndex(of: windowID), index > 0 else {
+            return
+        }
+
+        pendingWindowIDs.remove(at: index)
+        pendingWindowIDs.insert(windowID, at: 0)
+    }
+
+    func cancel() {
+        workerTask?.cancel()
+        captureSessionTask?.cancel()
+        workerTask = nil
+        captureSessionTask = nil
+        pendingWindowIDs.removeAll()
+        pendingWindowIDSet.removeAll()
+        inFlightWindowIDs.removeAll()
+        completionsByWindowID.removeAll()
+    }
+
+    private func startWorkerIfNeeded() {
+        guard workerTask == nil else {
+            return
+        }
+
+        workerTask = Task { @MainActor [weak self] in
+            await self?.runWorker()
+        }
+    }
+
+    private func runWorker() async {
+        defer {
+            workerTask = nil
+
+            if !pendingWindowIDs.isEmpty {
+                startWorkerIfNeeded()
+            }
+        }
+
+        let captureSession = await resolvedCaptureSession()
+
+        while !Task.isCancelled, !pendingWindowIDs.isEmpty {
+            let windowID = pendingWindowIDs.removeFirst()
+            pendingWindowIDSet.remove(windowID)
+            inFlightWindowIDs.insert(windowID)
+
+            let image = await captureSession.captureThumbnail(
+                windowID: windowID,
+                size: thumbnailSize
+            )
+
+            inFlightWindowIDs.remove(windowID)
+
+            let completions = completionsByWindowID.removeValue(forKey: windowID) ?? []
+            completions.forEach { $0(image) }
+        }
+    }
+
+    private func resolvedCaptureSession() async -> ThumbnailCaptureSession {
+        if let captureSessionTask {
+            return await captureSessionTask.value
+        }
+
+        let task = Task { @MainActor [thumbnailService] in
+            await thumbnailService.makeCaptureSession()
+        }
+        captureSessionTask = task
+        return await task.value
+    }
+}
+
 final class WindowSwitcherPanel: NSPanel {
     private let switcherView = WindowSwitcherOverlayView()
 
@@ -39,13 +159,13 @@ final class WindowSwitcherPanel: NSPanel {
         screen: NSScreen,
         items: [WindowSwitcherItem],
         selectedIndex: Int,
-        thumbnailService: ThumbnailService
+        thumbnailProvider: WindowSwitcherThumbnailProvider
     ) {
         setFrame(screen.frame, display: true)
         switcherView.update(
             items: items,
             selectedIndex: selectedIndex,
-            thumbnailService: thumbnailService
+            thumbnailProvider: thumbnailProvider
         )
     }
 
@@ -62,10 +182,11 @@ private final class WindowSwitcherOverlayView: NSView {
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
     private var cardViews: [WindowSwitcherCardView] = []
-    private var thumbnailTasks: [Task<Void, Never>] = []
     private var generation = UUID()
     private var selectedIndex = 0
     private var currentItemIDs: [String] = []
+    private var currentItems: [WindowSwitcherItem] = []
+    private weak var thumbnailProvider: WindowSwitcherThumbnailProvider?
 
     private var reduceTransparency: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -134,13 +255,16 @@ private final class WindowSwitcherOverlayView: NSView {
     func update(
         items: [WindowSwitcherItem],
         selectedIndex: Int,
-        thumbnailService: ThumbnailService
+        thumbnailProvider: WindowSwitcherThumbnailProvider
     ) {
         let nextItemIDs = items.map(\.id)
         self.selectedIndex = min(max(0, selectedIndex), max(0, items.count - 1))
+        self.thumbnailProvider = thumbnailProvider
 
         if nextItemIDs == currentItemIDs {
+            currentItems = items
             updateCardSelection()
+            prioritizeSelectedThumbnail()
             needsLayout = true
             layoutSubtreeIfNeeded()
             centerSelectedCard()
@@ -149,8 +273,7 @@ private final class WindowSwitcherOverlayView: NSView {
 
         generation = UUID()
         currentItemIDs = nextItemIDs
-        thumbnailTasks.forEach { $0.cancel() }
-        thumbnailTasks.removeAll()
+        currentItems = items
 
         while let view = stackView.arrangedSubviews.first {
             stackView.removeArrangedSubview(view)
@@ -164,17 +287,17 @@ private final class WindowSwitcherOverlayView: NSView {
             return cardView
         }
 
-        loadThumbnails(for: items, thumbnailService: thumbnailService, generation: generation)
+        loadThumbnails(for: items, thumbnailProvider: thumbnailProvider, generation: generation)
         needsLayout = true
         layoutSubtreeIfNeeded()
         centerSelectedCard()
     }
 
     func clear() {
-        thumbnailTasks.forEach { $0.cancel() }
-        thumbnailTasks.removeAll()
         generation = UUID()
         currentItemIDs.removeAll()
+        currentItems.removeAll()
+        thumbnailProvider = nil
     }
 
     private var selectedIndexCardHeight: CGFloat {
@@ -183,37 +306,79 @@ private final class WindowSwitcherOverlayView: NSView {
 
     private func loadThumbnails(
         for items: [WindowSwitcherItem],
-        thumbnailService: ThumbnailService,
+        thumbnailProvider: WindowSwitcherThumbnailProvider,
         generation: UUID
     ) {
-        for (index, item) in items.enumerated() {
+        for index in Self.thumbnailLoadOrder(count: items.count, selectedIndex: selectedIndex) {
+            let item = items[index]
             guard let cgWindowID = item.cgWindowID else {
                 continue
             }
 
-            let task = Task { [weak self, weak thumbnailService] in
-                guard let thumbnailService else {
+            if let cachedThumbnail = thumbnailProvider.cachedThumbnail(for: cgWindowID) {
+                cardViews[index].thumbnail = cachedThumbnail
+                continue
+            }
+
+            thumbnailProvider.requestThumbnail(windowID: cgWindowID) { [weak self] image in
+                guard let self,
+                      self.generation == generation,
+                      self.cardViews.indices.contains(index) else {
                     return
                 }
 
-                let image = await thumbnailService.captureThumbnail(
-                    windowID: cgWindowID,
-                    size: CGSize(width: 360, height: 230)
-                )
+                self.cardViews[index].thumbnail = image
+            }
+        }
+    }
 
-                await MainActor.run { [weak self] in
-                    guard let self,
-                          self.generation == generation,
-                          self.cardViews.indices.contains(index) else {
-                        return
-                    }
+    private func prioritizeSelectedThumbnail() {
+        guard
+            let thumbnailProvider,
+            currentItems.indices.contains(selectedIndex),
+            let cgWindowID = currentItems[selectedIndex].cgWindowID
+        else {
+            return
+        }
 
-                    self.cardViews[index].thumbnail = image
-                }
+        thumbnailProvider.prioritize(windowID: cgWindowID)
+        guard cardViews.indices.contains(selectedIndex), cardViews[selectedIndex].thumbnail == nil else {
+            return
+        }
+
+        let generation = generation
+        let selectedIndex = selectedIndex
+        thumbnailProvider.requestThumbnail(windowID: cgWindowID) { [weak self] image in
+            guard let self,
+                  self.generation == generation,
+                  self.cardViews.indices.contains(selectedIndex) else {
+                return
             }
 
-            thumbnailTasks.append(task)
+            self.cardViews[selectedIndex].thumbnail = image
         }
+    }
+
+    private static func thumbnailLoadOrder(count: Int, selectedIndex: Int) -> [Int] {
+        guard count > 0 else {
+            return []
+        }
+
+        let selectedIndex = min(max(0, selectedIndex), count - 1)
+        var orderedIndexes: [Int] = []
+        var seenIndexes = Set<Int>()
+
+        for distance in 0..<count {
+            for index in [selectedIndex + distance, selectedIndex - distance] {
+                guard index >= 0, index < count, seenIndexes.insert(index).inserted else {
+                    continue
+                }
+
+                orderedIndexes.append(index)
+            }
+        }
+
+        return orderedIndexes
     }
 
     private func updateCardSelection() {
