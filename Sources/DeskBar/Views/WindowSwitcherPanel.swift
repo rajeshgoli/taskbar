@@ -65,6 +65,7 @@ private final class WindowSwitcherOverlayView: NSView {
     private var thumbnailTasks: [Task<Void, Never>] = []
     private var generation = UUID()
     private var selectedIndex = 0
+    private var currentItemIDs: [String] = []
 
     private var reduceTransparency: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -135,10 +136,21 @@ private final class WindowSwitcherOverlayView: NSView {
         selectedIndex: Int,
         thumbnailService: ThumbnailService
     ) {
+        let nextItemIDs = items.map(\.id)
+        self.selectedIndex = min(max(0, selectedIndex), max(0, items.count - 1))
+
+        if nextItemIDs == currentItemIDs {
+            updateCardSelection()
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            centerSelectedCard()
+            return
+        }
+
         generation = UUID()
+        currentItemIDs = nextItemIDs
         thumbnailTasks.forEach { $0.cancel() }
         thumbnailTasks.removeAll()
-        self.selectedIndex = min(max(0, selectedIndex), max(0, items.count - 1))
 
         while let view = stackView.arrangedSubviews.first {
             stackView.removeArrangedSubview(view)
@@ -149,8 +161,6 @@ private final class WindowSwitcherOverlayView: NSView {
             let cardView = WindowSwitcherCardView()
             cardView.update(item: item, isSelected: index == self.selectedIndex)
             stackView.addArrangedSubview(cardView)
-            cardView.widthAnchor.constraint(equalToConstant: index == self.selectedIndex ? 300 : 246).isActive = true
-            cardView.heightAnchor.constraint(equalToConstant: index == self.selectedIndex ? selectedIndexCardHeight : 202).isActive = true
             return cardView
         }
 
@@ -164,6 +174,7 @@ private final class WindowSwitcherOverlayView: NSView {
         thumbnailTasks.forEach { $0.cancel() }
         thumbnailTasks.removeAll()
         generation = UUID()
+        currentItemIDs.removeAll()
     }
 
     private var selectedIndexCardHeight: CGFloat {
@@ -205,15 +216,21 @@ private final class WindowSwitcherOverlayView: NSView {
         }
     }
 
+    private func updateCardSelection() {
+        for (index, cardView) in cardViews.enumerated() {
+            cardView.updateSelection(isSelected: index == selectedIndex)
+        }
+    }
+
     private func updateColors() {
-        backdropView.alphaValue = reduceTransparency ? 0 : 0.74
+        backdropView.alphaValue = reduceTransparency ? 0 : 0.42
         let dimAlpha: CGFloat
         if increaseContrast {
-            dimAlpha = 0.58
+            dimAlpha = 0.48
         } else if reduceTransparency {
             dimAlpha = 0.78
         } else {
-            dimAlpha = 0.34
+            dimAlpha = 0.22
         }
         dimmingView.layer?.backgroundColor = NSColor.black.withAlphaComponent(dimAlpha).cgColor
         glassView.configure(reduceTransparency: reduceTransparency, increaseContrast: increaseContrast)
@@ -273,13 +290,13 @@ private final class LiquidGlassContainerView: NSVisualEffectView {
             layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.96).cgColor
         } else {
             material = .hudWindow
-            layer?.backgroundColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.18 : 0.08).cgColor
+            layer?.backgroundColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.14 : 0.035).cgColor
         }
 
         rimLayer.colors = [
-            NSColor.white.withAlphaComponent(increaseContrast ? 0.76 : 0.46).cgColor,
-            NSColor.controlAccentColor.withAlphaComponent(increaseContrast ? 0.34 : 0.22).cgColor,
-            NSColor.black.withAlphaComponent(0.12).cgColor
+            NSColor.white.withAlphaComponent(increaseContrast ? 0.72 : 0.34).cgColor,
+            NSColor.controlAccentColor.withAlphaComponent(increaseContrast ? 0.30 : 0.16).cgColor,
+            NSColor.black.withAlphaComponent(0.06).cgColor
         ]
         rimLayer.borderWidth = increaseContrast ? 1.5 : 1
         rimLayer.borderColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.58 : 0.28).cgColor
@@ -296,6 +313,10 @@ private final class WindowSwitcherCardView: NSView {
     private let footerView = NSView()
     private var item: WindowSwitcherItem?
     private var isSelected = false
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: isSelected ? 316 : 258, height: isSelected ? 258 : 210)
+    }
 
     var thumbnail: NSImage? {
         get { thumbnailView.image }
@@ -321,10 +342,11 @@ private final class WindowSwitcherCardView: NSView {
         thumbnailView.layer?.cornerRadius = 18
         thumbnailView.layer?.cornerCurve = .continuous
         thumbnailView.layer?.masksToBounds = true
+        thumbnailView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.18).cgColor
         addSubview(thumbnailView)
 
         fallbackIconView.imageScaling = .scaleProportionallyUpOrDown
-        fallbackIconView.alphaValue = 0.92
+        fallbackIconView.alphaValue = 0.64
         addSubview(fallbackIconView)
 
         footerView.wantsLayer = true
@@ -400,6 +422,17 @@ private final class WindowSwitcherCardView: NSView {
         appField.stringValue = item.appName
         thumbnail = nil
         needsLayout = true
+        invalidateIntrinsicContentSize()
+    }
+
+    func updateSelection(isSelected: Bool) {
+        guard self.isSelected != isSelected else {
+            return
+        }
+
+        self.isSelected = isSelected
+        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
     private func updateLayerStyle() {
@@ -414,10 +447,10 @@ private final class WindowSwitcherCardView: NSView {
             ? NSColor.controlAccentColor.withAlphaComponent(0.92)
             : NSColor.white.withAlphaComponent(0.28)
         ).cgColor
-        backgroundView.alphaValue = isSelected ? 1 : 0.72
+        backgroundView.alphaValue = isSelected ? 0.58 : 0.34
         footerView.layer?.cornerRadius = 16
         footerView.layer?.cornerCurve = .continuous
-        footerView.layer?.backgroundColor = NSColor.black.withAlphaComponent(isSelected ? 0.44 : 0.32).cgColor
+        footerView.layer?.backgroundColor = NSColor.black.withAlphaComponent(isSelected ? 0.30 : 0.20).cgColor
         titleField.textColor = .white
         appField.textColor = NSColor.white.withAlphaComponent(0.72)
     }
