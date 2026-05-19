@@ -14,6 +14,7 @@ final class TaskbarContentView: NSView {
     private let blacklistManager: BlacklistManager
     private let displayID: CGDirectDisplayID
     private let launcherZoneView: LauncherZoneView
+    private let systemResourceWidgetView: SystemResourceWidgetView
     private let runningAppTrayView: RunningAppTrayView
     private let axGetWindow: AXUIElementGetWindowFunc?
     private let accessibilityService = AccessibilityService()
@@ -64,6 +65,7 @@ final class TaskbarContentView: NSView {
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         pinnedAppManager: PinnedAppManager,
+        systemResourceMonitor: SystemResourceMonitor,
         thumbnailService: ThumbnailService? = nil,
         displayID: CGDirectDisplayID,
         openSettingsHandler: @escaping () -> Void
@@ -84,9 +86,16 @@ final class TaskbarContentView: NSView {
             windowManager: windowManager,
             displayID: displayID
         )
+        systemResourceWidgetView = SystemResourceWidgetView(
+            settings: settings,
+            monitor: systemResourceMonitor,
+            displayID: displayID
+        )
         runningAppTrayView = RunningAppTrayView(
             windowManager: windowManager,
             pinnedAppManager: pinnedAppManager,
+            settings: settings,
+            systemResourceMonitor: systemResourceMonitor,
             displayID: displayID
         )
         if let symbol = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
@@ -103,6 +112,12 @@ final class TaskbarContentView: NSView {
         installCollapseMonitors()
         installModifierMonitors()
         observePinRequests()
+        systemResourceWidgetView.preferredWidthDidChange = { [weak self] in
+            self?.schedulePreferredWidthNotification()
+        }
+        runningAppTrayView.preferredWidthDidChange = { [weak self] in
+            self?.schedulePreferredWidthNotification()
+        }
         updateTaskbarLayout()
         rebuildTaskZone()
     }
@@ -141,6 +156,7 @@ final class TaskbarContentView: NSView {
         let contentWidth =
             launcherZoneView.preferredContentWidth() +
             preferredTaskZoneWidth() +
+            systemResourceWidgetView.preferredContentWidth() +
             runningAppTrayView.preferredContentWidth() +
             zonesStackView.edgeInsets.left +
             zonesStackView.edgeInsets.right
@@ -337,6 +353,7 @@ final class TaskbarContentView: NSView {
 
         zonesStackView.addArrangedSubview(launcherZoneView)
         zonesStackView.addArrangedSubview(taskZoneContainer)
+        zonesStackView.addArrangedSubview(systemResourceWidgetView)
         zonesStackView.addArrangedSubview(runningAppTrayView)
     }
 
@@ -450,6 +467,27 @@ final class TaskbarContentView: NSView {
             .store(in: &cancellables)
 
         settings.$showTitles
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceWidget
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        settings.$systemResourceWidgetCollapsed
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
+        settings.$systemResourceWidgetPinnedDisplayID
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.schedulePreferredWidthNotification()

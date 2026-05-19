@@ -46,6 +46,11 @@ final class SettingsView: NSView {
     private let flashAttentionIndicatorsCheckbox = NSButton(checkboxWithTitle: "Flash apps that want attention", target: nil, action: nil)
     private let showProgressIndicatorsCheckbox = NSButton(checkboxWithTitle: "Show app progress indicators", target: nil, action: nil)
     private let enableActivityModeCheckbox = NSButton(checkboxWithTitle: "Activity mode (hold Control for CPU/RAM)", target: nil, action: nil)
+    private let showSystemResourceWidgetCheckbox = NSButton(checkboxWithTitle: "Show system resource widget", target: nil, action: nil)
+    private let showSystemResourceMemoryMetricCheckbox = NSButton(checkboxWithTitle: "Memory pressure", target: nil, action: nil)
+    private let showSystemResourceCPUMetricCheckbox = NSButton(checkboxWithTitle: "CPU usage", target: nil, action: nil)
+    private let showSystemResourceGPUMetricCheckbox = NSButton(checkboxWithTitle: "GPU usage", target: nil, action: nil)
+    private let systemResourceWidgetDisplayPopupButton = NSPopUpButton()
     private let enableWindowSwitcherCheckbox = NSButton(checkboxWithTitle: "Enable Alt-Tab / Option-Tab window switcher", target: nil, action: nil)
     private let enableBareCommandLauncherCheckbox = NSButton(checkboxWithTitle: "Enable Apps launcher shortcut", target: nil, action: nil)
     private let appsLauncherShortcutPopupButton = NSPopUpButton()
@@ -60,6 +65,7 @@ final class SettingsView: NSView {
 
     private var blacklistEntries: [AppEntry] = []
     private var addSheetEntries: [AppEntry] = []
+    private var widgetDisplayOptions: [CGDirectDisplayID?] = []
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -98,6 +104,7 @@ final class SettingsView: NSView {
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
         layoutModePopupButton.addItems(withTitles: ["Full Width", "Full Width Glass", "Compact Centered", "Compact Glass"])
         appsLauncherShortcutPopupButton.addItems(withTitles: ["Control-Option-Return", "Option-Space", "Control-Option-Space", "Tap Command"])
+        configureWidgetDisplayPopupButton()
         configureLauncherTableView()
         configureBlacklistTableView()
 
@@ -139,6 +146,16 @@ final class SettingsView: NSView {
             makeLabeledControlRow(label: "Apps launcher shortcut", control: appsLauncherShortcutPopupButton)
         ])
 
+        let widgetsTab = NSTabViewItem(identifier: "widgets")
+        widgetsTab.label = "Widgets"
+        widgetsTab.view = makeFormView(rows: [
+            makeCheckboxRow(showSystemResourceWidgetCheckbox),
+            makeLabeledControlRow(label: "Show on", control: systemResourceWidgetDisplayPopupButton),
+            makeCheckboxRow(showSystemResourceMemoryMetricCheckbox),
+            makeCheckboxRow(showSystemResourceCPUMetricCheckbox),
+            makeCheckboxRow(showSystemResourceGPUMetricCheckbox)
+        ])
+
         let launcherTab = NSTabViewItem(identifier: "launcher")
         launcherTab.label = "Launcher"
         launcherTab.view = makeLauncherView()
@@ -147,7 +164,32 @@ final class SettingsView: NSView {
         blacklistTab.label = "Blacklist"
         blacklistTab.view = makeBlacklistView()
 
-        [generalTab, appearanceTab, behaviorTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
+        [generalTab, appearanceTab, behaviorTab, widgetsTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
+    }
+
+    private func configureWidgetDisplayPopupButton() {
+        systemResourceWidgetDisplayPopupButton.removeAllItems()
+        widgetDisplayOptions = [nil]
+        systemResourceWidgetDisplayPopupButton.addItem(withTitle: "All Displays")
+
+        let screenOptions = NSScreen.screens.compactMap { screen -> (String, CGDirectDisplayID)? in
+            guard let displayID = ScreenGeometry.displayID(for: screen) else {
+                return nil
+            }
+
+            return ("\(screen.localizedName) (\(displayID))", displayID)
+        }
+
+        for (title, displayID) in screenOptions {
+            widgetDisplayOptions.append(displayID)
+            systemResourceWidgetDisplayPopupButton.addItem(withTitle: title)
+        }
+
+        if let pinnedDisplayID = settings.systemResourceWidgetPinnedDisplayID,
+           !widgetDisplayOptions.contains(where: { $0 == pinnedDisplayID }) {
+            widgetDisplayOptions.append(pinnedDisplayID)
+            systemResourceWidgetDisplayPopupButton.addItem(withTitle: "Display \(pinnedDisplayID) (Disconnected)")
+        }
     }
 
     private func configureLauncherTableView() {
@@ -264,6 +306,21 @@ final class SettingsView: NSView {
 
         enableActivityModeCheckbox.target = self
         enableActivityModeCheckbox.action = #selector(enableActivityModeChanged(_:))
+
+        showSystemResourceWidgetCheckbox.target = self
+        showSystemResourceWidgetCheckbox.action = #selector(showSystemResourceWidgetChanged(_:))
+
+        showSystemResourceMemoryMetricCheckbox.target = self
+        showSystemResourceMemoryMetricCheckbox.action = #selector(showSystemResourceMemoryMetricChanged(_:))
+
+        showSystemResourceCPUMetricCheckbox.target = self
+        showSystemResourceCPUMetricCheckbox.action = #selector(showSystemResourceCPUMetricChanged(_:))
+
+        showSystemResourceGPUMetricCheckbox.target = self
+        showSystemResourceGPUMetricCheckbox.action = #selector(showSystemResourceGPUMetricChanged(_:))
+
+        systemResourceWidgetDisplayPopupButton.target = self
+        systemResourceWidgetDisplayPopupButton.action = #selector(systemResourceWidgetDisplayChanged(_:))
 
         enableWindowSwitcherCheckbox.target = self
         enableWindowSwitcherCheckbox.action = #selector(enableWindowSwitcherChanged(_:))
@@ -433,6 +490,50 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.enableActivityModeCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceWidget
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSystemResourceWidgetCheckbox.state = value ? .on : .off
+                self?.updateWidgetControlsState()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceMemoryMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSystemResourceMemoryMetricCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceCPUMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSystemResourceCPUMetricCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceGPUMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSystemResourceGPUMetricCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$systemResourceWidgetPinnedDisplayID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateWidgetDisplayPopupSelection()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.configureWidgetDisplayPopupButton()
+                self?.updateWidgetDisplayPopupSelection()
             }
             .store(in: &cancellables)
 
@@ -744,6 +845,26 @@ final class SettingsView: NSView {
         removeBlacklistButton.isEnabled = blacklistEntries.indices.contains(selectedRow)
     }
 
+    private func updateWidgetControlsState() {
+        let isEnabled = settings.showSystemResourceWidget
+        systemResourceWidgetDisplayPopupButton.isEnabled = isEnabled
+        showSystemResourceMemoryMetricCheckbox.isEnabled = isEnabled
+        showSystemResourceCPUMetricCheckbox.isEnabled = isEnabled
+        showSystemResourceGPUMetricCheckbox.isEnabled = isEnabled
+    }
+
+    private func updateWidgetDisplayPopupSelection() {
+        configureWidgetDisplayPopupButton()
+
+        let selectedDisplayID = settings.systemResourceWidgetPinnedDisplayID
+        let selectedIndex = widgetDisplayOptions.firstIndex { option in
+            option == selectedDisplayID
+        } ?? 0
+
+        systemResourceWidgetDisplayPopupButton.selectItem(at: selectedIndex)
+        updateWidgetControlsState()
+    }
+
     private func reloadBlacklistEntries() {
         blacklistEntries = blacklistManager.blacklistedBundleIDs
             .map(resolveAppEntry(bundleIdentifier:))
@@ -1001,6 +1122,36 @@ final class SettingsView: NSView {
     @objc
     private func enableActivityModeChanged(_ sender: NSButton) {
         settings.enableActivityMode = sender.state == .on
+    }
+
+    @objc
+    private func showSystemResourceWidgetChanged(_ sender: NSButton) {
+        settings.showSystemResourceWidget = sender.state == .on
+    }
+
+    @objc
+    private func showSystemResourceMemoryMetricChanged(_ sender: NSButton) {
+        settings.showSystemResourceMemoryMetric = sender.state == .on
+    }
+
+    @objc
+    private func showSystemResourceCPUMetricChanged(_ sender: NSButton) {
+        settings.showSystemResourceCPUMetric = sender.state == .on
+    }
+
+    @objc
+    private func showSystemResourceGPUMetricChanged(_ sender: NSButton) {
+        settings.showSystemResourceGPUMetric = sender.state == .on
+    }
+
+    @objc
+    private func systemResourceWidgetDisplayChanged(_ sender: NSPopUpButton) {
+        guard widgetDisplayOptions.indices.contains(sender.indexOfSelectedItem) else {
+            settings.systemResourceWidgetPinnedDisplayID = nil
+            return
+        }
+
+        settings.systemResourceWidgetPinnedDisplayID = widgetDisplayOptions[sender.indexOfSelectedItem]
     }
 
     @objc

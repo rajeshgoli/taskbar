@@ -13,6 +13,7 @@ Lightweight, native, no external dependencies. Does not modify any system settin
 ## Features
 
 - **Three-zone layout** — Launcher (pinned apps) | Task Zone (windows) | Running-App Tray
+- **System resource widget** — collapsible MEM/CPU/GPU widget with per-metric toggles and Activity Monitor history shortcuts
 - **Per-window switching** — click a task button to raise that specific window, not all windows from the app
 - **AltTab-style window switcher** — Option+Tab cycles individual windows with a bold glass thumbnail overlay
 - **Dock-style right-click menus** — task and launcher menus expose windows plus Show All Windows, Hide, Quit, and launcher options
@@ -88,6 +89,7 @@ Accessible via the gear icon in the menu bar.
 | General | Start at login, Dock mode |
 | Appearance | DeskBar layout, taskbar height, font size, max button width, show titles, thumbnail size, reset sliders |
 | Behavior | Hover delay, group by app, drag reorder, middle-click closes, attention/progress indicators, activity mode, show over full-screen, multi-monitor, Alt-Tab / Option-Tab, Apps launcher shortcut |
+| Widgets | System resource widget on/off, display pinning, memory/CPU/GPU metric toggles |
 | Launcher | Manage pinned apps |
 | Blacklist | Manage hidden apps |
 

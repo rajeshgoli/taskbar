@@ -91,6 +91,36 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(enableActivityMode, forKey: "enableActivityMode") }
     }
 
+    @Published var showSystemResourceWidget: Bool {
+        didSet { defaults.set(showSystemResourceWidget, forKey: "showSystemResourceWidget") }
+    }
+
+    @Published var showSystemResourceMemoryMetric: Bool {
+        didSet { defaults.set(showSystemResourceMemoryMetric, forKey: "showSystemResourceMemoryMetric") }
+    }
+
+    @Published var showSystemResourceCPUMetric: Bool {
+        didSet { defaults.set(showSystemResourceCPUMetric, forKey: "showSystemResourceCPUMetric") }
+    }
+
+    @Published var showSystemResourceGPUMetric: Bool {
+        didSet { defaults.set(showSystemResourceGPUMetric, forKey: "showSystemResourceGPUMetric") }
+    }
+
+    @Published var systemResourceWidgetCollapsed: Bool {
+        didSet { defaults.set(systemResourceWidgetCollapsed, forKey: "systemResourceWidgetCollapsed") }
+    }
+
+    @Published var systemResourceWidgetPinnedDisplayID: CGDirectDisplayID? {
+        didSet {
+            if let systemResourceWidgetPinnedDisplayID {
+                defaults.set(Int(systemResourceWidgetPinnedDisplayID), forKey: "systemResourceWidgetPinnedDisplayID")
+            } else {
+                defaults.removeObject(forKey: "systemResourceWidgetPinnedDisplayID")
+            }
+        }
+    }
+
     @Published var startAtLogin: Bool {
         didSet { defaults.set(startAtLogin, forKey: "startAtLogin") }
     }
@@ -138,6 +168,16 @@ class TaskbarSettings: ObservableObject {
         flashAttentionIndicators = defaults.object(forKey: "flashAttentionIndicators") as? Bool ?? true
         showProgressIndicators = defaults.object(forKey: "showProgressIndicators") as? Bool ?? true
         enableActivityMode = defaults.object(forKey: "enableActivityMode") as? Bool ?? true
+        showSystemResourceWidget = defaults.object(forKey: "showSystemResourceWidget") as? Bool ?? true
+        showSystemResourceMemoryMetric = defaults.object(forKey: "showSystemResourceMemoryMetric") as? Bool ?? true
+        showSystemResourceCPUMetric = defaults.object(forKey: "showSystemResourceCPUMetric") as? Bool ?? true
+        showSystemResourceGPUMetric = defaults.object(forKey: "showSystemResourceGPUMetric") as? Bool ?? true
+        systemResourceWidgetCollapsed = defaults.object(forKey: "systemResourceWidgetCollapsed") as? Bool ?? false
+        if let pinnedDisplayID = defaults.object(forKey: "systemResourceWidgetPinnedDisplayID") as? NSNumber {
+            systemResourceWidgetPinnedDisplayID = CGDirectDisplayID(pinnedDisplayID.uint32Value)
+        } else {
+            systemResourceWidgetPinnedDisplayID = nil
+        }
         startAtLogin = defaults.object(forKey: "startAtLogin") as? Bool ?? false
         showOnAllMonitors = defaults.object(forKey: "showOnAllMonitors") as? Bool ?? true
         layoutMode = DeskBarLayoutMode(rawValue: defaults.string(forKey: "layoutMode") ?? "") ?? .fullWidth

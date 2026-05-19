@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginItemManager: LoginItemManager?
     private var badgeMonitor: BadgeMonitor?
     private var appStateMonitor: AppStateMonitor?
+    private var systemResourceMonitor: SystemResourceMonitor?
     private var thumbnailService: ThumbnailService?
     private var windowLayoutSnapshotManager: WindowLayoutSnapshotManager?
     private var windowSwitcherService: WindowSwitcherService?
@@ -64,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appStateMonitor = AppStateMonitor()
         self.appStateMonitor = appStateMonitor
+
+        let systemResourceMonitor = SystemResourceMonitor()
+        self.systemResourceMonitor = systemResourceMonitor
 
         let thumbnailService = ThumbnailService()
         self.thumbnailService = thumbnailService
@@ -296,6 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let permissionsManager,
             let badgeMonitor,
             let appStateMonitor,
+            let systemResourceMonitor,
             let blacklistManager,
             let pinnedAppManager
         else {
@@ -323,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings: settings,
                 blacklistManager: blacklistManager,
                 pinnedAppManager: pinnedAppManager,
+                systemResourceMonitor: systemResourceMonitor,
                 thumbnailService: thumbnailService,
                 displayID: displayID,
                 openSettingsHandler: { [weak self] in

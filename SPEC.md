@@ -42,6 +42,7 @@ Rather than work around a buggy third-party app with a suspicious bundle ID, we'
 19. Option to auto-hide macOS Dock
 20. Multi-monitor support (taskbar on all screens, each scoped to its own display)
 21. Configurable taskbar height, font size, max task width
+22. Persistent pinned widgets, starting with a collapsible system resource widget for memory pressure, CPU usage, and GPU usage
 
 ## Non-Requirements
 
@@ -355,6 +356,16 @@ Icons for running apps that have no visible windows in the current Space/monitor
 - **Partial minimize (mixed state):** When one of several windows is minimized but others remain visible, the minimized window stays in the Task Zone with a greyed/bracket indicator. No tray transition occurs.
 - **Unminimize from tray:** Clicking a tray icon for an all-minimized app activates the app, which brings its windows back. The app transitions from tray to Task Zone.
 
+#### System Resource Widget
+
+DeskBar can show a persistent system resource widget as a compact pane immediately before the right-side tray. The initial widget reports system memory pressure, CPU usage, and GPU usage. The widget is visible by default, can be hidden from Settings, and can be pinned either to all displays or to a specific display's DeskBar via the widget context menu or Settings > Widgets.
+
+**Expanded state:** The widget shows three compact metric controls: MEM, CPU, and GPU. Each metric can be toggled individually in Settings > Widgets. Each metric includes a small filled bar plus a number (`16/18G` style memory usage when available, percent values for CPU/GPU). Fill bars animate between samples. Memory uses saturation colors (green below 75%, yellow at 75%, red at 90% or critical pressure); CPU/GPU use the same yellow/red thresholds for high utilization. Clicking MEM opens Activity Monitor on the Memory pane, clicking CPU opens Activity Monitor's CPU History window, and clicking GPU opens Activity Monitor's GPU History window when available. A chevron button collapses the widget.
+
+**Collapsed state:** The widget collapses to a single tray-sized icon in the same right-side tray area. Clicking the icon expands it again. The collapsed/expanded state is persisted.
+
+**Metric sources:** CPU usage is sampled from Mach processor ticks. Memory pressure uses macOS memorystatus pressure/free-level sysctls. GPU usage is best-effort from IOAccelerator `PerformanceStatistics` (`Device Utilization %`, falling back to renderer/tiler utilization).
+
 #### No duplicate representation
 
 An app must appear in at most one zone at a time, with one exception:
@@ -421,7 +432,9 @@ TaskbarContentView
   |-- LauncherZoneView -----> LauncherButtonView (per pinned app, always present)
   |-- TaskZoneView ----------> TaskButtonView (per window: visible, minimized, or hidden)
   |                            [full mode: per-window | degraded mode: per-app]
+  |-- SystemResourceWidgetView (expanded persistent CPU/memory/GPU widget)
   |-- RunningAppTrayView ----> TrayIconView (per app with no usable local windows)
+                           |--> CollapsedSystemResourceWidgetView (collapsed widget icon)
 ```
 
 ### Feature-to-API Mapping
@@ -443,6 +456,8 @@ TaskbarContentView
 | Settings persistence | `UserDefaults(suiteName: "com.deskbar.app")` |
 | Start at login | Write LaunchAgent plist to `~/Library/LaunchAgents/` |
 | Open Apps launcher | `NSWorkspace.openApplication` for `com.apple.apps.launcher` |
+| System resource widget | Mach processor ticks + memorystatus sysctls + IOAccelerator performance statistics |
+| Open Activity Monitor panes | `NSWorkspace.OpenConfiguration` + best-effort AppleScript navigation |
 | Hide Dock | `defaults write com.apple.dock autohide` + `killall Dock` |
 | Drag reorder | `NSDraggingSource` / `NSDraggingDestination` |
 | Hover detection | `NSTrackingArea` with `.mouseEnteredAndExited` |
@@ -529,6 +544,10 @@ Settings table:
 | Hover delay | 400ms |
 | Dock mode | `independent` (options: `independent`, `autoHide`, `hidden`) |
 | Show over full-screen apps | false |
+| Show system resource widget | true |
+| Show memory pressure metric | true |
+| Show CPU usage metric | true |
+| Show GPU usage metric | true |
 | Start at login | false |
 | Show on all monitors | true |
 | Enable Alt-Tab / Option-Tab window switcher | true |

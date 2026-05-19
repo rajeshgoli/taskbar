@@ -4,19 +4,31 @@ import Combine
 final class RunningAppTrayView: NSStackView {
     private let windowManager: WindowManager
     private let pinnedAppManager: PinnedAppManager
+    private let settings: TaskbarSettings
     private let displayID: CGDirectDisplayID
     private let dividerView = NSView()
     private let iconsStackView = NSStackView()
+    private let collapsedSystemResourceWidgetView: CollapsedSystemResourceWidgetView
     private var cancellables = Set<AnyCancellable>()
+
+    var preferredWidthDidChange: (() -> Void)?
 
     init(
         windowManager: WindowManager,
         pinnedAppManager: PinnedAppManager,
+        settings: TaskbarSettings,
+        systemResourceMonitor: SystemResourceMonitor,
         displayID: CGDirectDisplayID
     ) {
         self.windowManager = windowManager
         self.pinnedAppManager = pinnedAppManager
+        self.settings = settings
         self.displayID = displayID
+        self.collapsedSystemResourceWidgetView = CollapsedSystemResourceWidgetView(
+            settings: settings,
+            monitor: systemResourceMonitor,
+            displayID: displayID
+        )
         super.init(frame: .zero)
 
         orientation = .horizontal
@@ -75,6 +87,48 @@ final class RunningAppTrayView: NSStackView {
                 self?.rebuildIcons()
             }
             .store(in: &cancellables)
+
+        settings.$showSystemResourceWidget
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
+        settings.$systemResourceWidgetPinnedDisplayID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
+        settings.$systemResourceWidgetCollapsed
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceMemoryMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceCPUMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSystemResourceGPUMetric
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
     }
 
     func refresh() {
@@ -107,6 +161,13 @@ final class RunningAppTrayView: NSStackView {
                 )
             )
         }
+
+        if shouldShowCollapsedSystemResourceWidget {
+            iconsStackView.insertArrangedSubview(collapsedSystemResourceWidgetView, at: 0)
+        }
+
+        dividerView.isHidden = iconsStackView.arrangedSubviews.isEmpty
+        preferredWidthDidChange?()
     }
 
     private var localTrayApps: [NSRunningApplication] {
@@ -115,6 +176,26 @@ final class RunningAppTrayView: NSStackView {
         }
 
         return windowManager.trayApplications(on: screen)
+    }
+
+    private var shouldShowCollapsedSystemResourceWidget: Bool {
+        guard
+            settings.showSystemResourceWidget,
+            settings.systemResourceWidgetCollapsed,
+            [
+                settings.showSystemResourceMemoryMetric,
+                settings.showSystemResourceCPUMetric,
+                settings.showSystemResourceGPUMetric
+            ].contains(true)
+        else {
+            return false
+        }
+
+        guard let pinnedDisplayID = settings.systemResourceWidgetPinnedDisplayID else {
+            return true
+        }
+
+        return pinnedDisplayID == displayID
     }
 
     private static func preferredWidth(forArrangedSubviewsIn stackView: NSStackView, spacing: CGFloat) -> CGFloat {
