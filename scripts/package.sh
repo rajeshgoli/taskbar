@@ -17,6 +17,11 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # Copy binary
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 
+# Copy resources
+if [ -f "Resources/AppIcon.icns" ]; then
+  cp "Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
+
 # Generate Info.plist from template
 sed "s|__EXECUTABLE__|$APP_NAME|g" Info.plist.template > "$CONTENTS_DIR/Info.plist"
 
