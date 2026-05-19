@@ -2,11 +2,22 @@ import Darwin
 import Foundation
 
 final class SingleInstanceLock {
+    private enum AcquisitionResult {
+        case acquired
+        case locked
+        case setupFailed
+    }
+
     private let lockURL: URL
+    private let fallbackLockURL: URL?
     private var fileDescriptor: Int32 = -1
 
-    init(lockURL: URL = SingleInstanceLock.defaultLockURL()) {
+    init(
+        lockURL: URL = SingleInstanceLock.defaultLockURL(),
+        fallbackLockURL: URL? = SingleInstanceLock.defaultFallbackLockURL()
+    ) {
         self.lockURL = lockURL
+        self.fallbackLockURL = fallbackLockURL
     }
 
     deinit {
@@ -18,30 +29,23 @@ final class SingleInstanceLock {
             return true
         }
 
-        do {
-            try FileManager.default.createDirectory(
-                at: lockURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-        } catch {
-            print("DeskBar: failed to create lock directory: \(error)")
+        switch acquireLock(at: lockURL) {
+        case .acquired:
             return true
-        }
-
-        let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else {
-            print("DeskBar: failed to open instance lock at \(lockURL.path)")
-            return true
-        }
-
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
+        case .locked:
             return false
-        }
+        case .setupFailed:
+            guard let fallbackLockURL, fallbackLockURL != lockURL else {
+                return false
+            }
 
-        fileDescriptor = descriptor
-        writeCurrentPID()
-        return true
+            switch acquireLock(at: fallbackLockURL) {
+            case .acquired:
+                return true
+            case .locked, .setupFailed:
+                return false
+            }
+        }
     }
 
     func release() {
@@ -59,6 +63,39 @@ final class SingleInstanceLock {
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("deskbar", isDirectory: true)
             .appendingPathComponent("deskbar.lock")
+    }
+
+    static func defaultFallbackLockURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("com.deskbar.app", isDirectory: true)
+            .appendingPathComponent("deskbar.lock")
+    }
+
+    private func acquireLock(at url: URL) -> AcquisitionResult {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            print("DeskBar: failed to create lock directory at \(url.deletingLastPathComponent().path): \(error)")
+            return .setupFailed
+        }
+
+        let descriptor = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else {
+            print("DeskBar: failed to open instance lock at \(url.path)")
+            return .setupFailed
+        }
+
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
+            return .locked
+        }
+
+        fileDescriptor = descriptor
+        writeCurrentPID()
+        return .acquired
     }
 
     private func writeCurrentPID() {

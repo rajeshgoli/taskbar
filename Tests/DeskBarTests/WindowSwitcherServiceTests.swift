@@ -48,6 +48,14 @@ func windowSwitcherEventTapRequiresAccessibilityAndAtLeastOneShortcut() {
 func appsLauncherShortcutMatchesConfiguredSpaceCombos() {
     #expect(
         WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .controlOptionReturn,
+            type: .keyDown,
+            keyCode: 36,
+            flags: [.maskControl, .maskAlternate]
+        )
+    )
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
             shortcut: .controlOptionSpace,
             type: .keyDown,
             keyCode: 49,
@@ -76,7 +84,7 @@ func appsLauncherShortcutMatchesConfiguredSpaceCombos() {
 func appsLauncherShortcutRejectsSystemAndCopyPasteLikeCombos() {
     #expect(
         WindowSwitcherService.matchesAppsLauncherShortcut(
-            shortcut: .controlOptionSpace,
+            shortcut: .controlOptionReturn,
             type: .keyDown,
             keyCode: 49,
             flags: [.maskCommand, .maskAlternate]
@@ -84,7 +92,7 @@ func appsLauncherShortcutRejectsSystemAndCopyPasteLikeCombos() {
     )
     #expect(
         WindowSwitcherService.matchesAppsLauncherShortcut(
-            shortcut: .controlOptionSpace,
+            shortcut: .controlOptionReturn,
             type: .keyDown,
             keyCode: 8,
             flags: [.maskCommand]
@@ -92,9 +100,9 @@ func appsLauncherShortcutRejectsSystemAndCopyPasteLikeCombos() {
     )
     #expect(
         WindowSwitcherService.matchesAppsLauncherShortcut(
-            shortcut: .controlOptionSpace,
+            shortcut: .controlOptionReturn,
             type: .keyUp,
-            keyCode: 49,
+            keyCode: 36,
             flags: [.maskControl, .maskAlternate]
         ) == false
     )

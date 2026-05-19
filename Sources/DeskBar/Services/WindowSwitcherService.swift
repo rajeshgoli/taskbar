@@ -11,6 +11,7 @@ enum WindowSwitcherActivationAction: Equatable {
 final class WindowSwitcherService {
     private static let tabKeyCode: CGKeyCode = 48
     private static let spaceKeyCode: CGKeyCode = 49
+    private static let returnKeyCode: CGKeyCode = 36
     private static let escapeKeyCode: CGKeyCode = 53
     static let eventTypesOfInterest: [CGEventType] = [
         .keyDown,
@@ -97,6 +98,12 @@ final class WindowSwitcherService {
         switch shortcut {
         case .commandTap:
             return false
+        case .controlOptionReturn:
+            return keyCode == returnKeyCode &&
+                flags.contains(.maskControl) &&
+                flags.contains(.maskAlternate) &&
+                !flags.contains(.maskCommand) &&
+                !flags.contains(.maskShift)
         case .controlOptionSpace:
             return keyCode == spaceKeyCode &&
                 flags.contains(.maskControl) &&

@@ -72,7 +72,7 @@ tccutil reset Accessibility com.deskbar.app
 | **Shift+Option+Tab** | Moves backward in the window switcher |
 | **Release Option** | Activates the highlighted window |
 | **Escape** while switching | Cancels the switcher without changing windows |
-| **Apps launcher shortcut** | Opens the macOS Apps launcher; defaults to Control-Option-Space and can be changed in Settings |
+| **Apps launcher shortcut** | Opens the macOS Apps launcher; defaults to Control-Option-Return and can be changed in Settings |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
 | **Click a tray icon** | Activates the app, or reopens it if it is running without windows |

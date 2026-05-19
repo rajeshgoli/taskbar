@@ -97,7 +97,7 @@ final class SettingsView: NSView {
 
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
         layoutModePopupButton.addItems(withTitles: ["Full Width", "Full Width Glass", "Compact Centered", "Compact Glass"])
-        appsLauncherShortcutPopupButton.addItems(withTitles: ["Control-Option-Space", "Option-Space", "Tap Command"])
+        appsLauncherShortcutPopupButton.addItems(withTitles: ["Control-Option-Return", "Option-Space", "Control-Option-Space", "Tap Command"])
         configureLauncherTableView()
         configureBlacklistTableView()
 
@@ -456,12 +456,14 @@ final class SettingsView: NSView {
             .sink { [weak self] value in
                 let index: Int
                 switch value {
-                case .controlOptionSpace:
+                case .controlOptionReturn:
                     index = 0
                 case .optionSpace:
                     index = 1
-                case .commandTap:
+                case .controlOptionSpace:
                     index = 2
+                case .commandTap:
+                    index = 3
                 }
 
                 self?.appsLauncherShortcutPopupButton.selectItem(at: index)
@@ -1014,12 +1016,14 @@ final class SettingsView: NSView {
     @objc
     private func appsLauncherShortcutChanged(_ sender: NSPopUpButton) {
         switch sender.indexOfSelectedItem {
-        case 2:
+        case 3:
             settings.appsLauncherShortcut = .commandTap
+        case 2:
+            settings.appsLauncherShortcut = .controlOptionSpace
         case 1:
             settings.appsLauncherShortcut = .optionSpace
         default:
-            settings.appsLauncherShortcut = .controlOptionSpace
+            settings.appsLauncherShortcut = .controlOptionReturn
         }
     }
 

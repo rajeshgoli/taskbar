@@ -23,7 +23,7 @@ struct TaskbarSettingsTests {
         #expect(settings.layoutMode == .fullWidth)
         #expect(settings.enableWindowSwitcher)
         #expect(settings.enableBareCommandLauncher)
-        #expect(settings.appsLauncherShortcut == .controlOptionSpace)
+        #expect(settings.appsLauncherShortcut == .controlOptionReturn)
     }
 
     @Test
