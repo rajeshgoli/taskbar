@@ -28,7 +28,7 @@ final class SingleInstanceLock {
             return true
         }
 
-        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             print("DeskBar: failed to open instance lock at \(lockURL.path)")
             return true
