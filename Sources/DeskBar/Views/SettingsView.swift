@@ -29,7 +29,7 @@ final class SettingsView: NSView {
     private let startAtLoginCheckbox = NSButton(checkboxWithTitle: "Start at login", target: nil, action: nil)
     private let dockModePopupButton = NSPopUpButton()
 
-    private let taskbarHeightSlider = NSSlider(value: 40, minValue: 30, maxValue: 60, target: nil, action: nil)
+    private let taskbarHeightSlider = NSSlider(value: 40, minValue: 32, maxValue: 60, target: nil, action: nil)
     private let layoutModePopupButton = NSPopUpButton()
     private let titleFontSizeSlider = NSSlider(value: 12, minValue: 8, maxValue: 18, target: nil, action: nil)
     private let maxTaskWidthSlider = NSSlider(value: 200, minValue: 100, maxValue: 400, target: nil, action: nil)
@@ -46,8 +46,9 @@ final class SettingsView: NSView {
     private let flashAttentionIndicatorsCheckbox = NSButton(checkboxWithTitle: "Flash apps that want attention", target: nil, action: nil)
     private let showProgressIndicatorsCheckbox = NSButton(checkboxWithTitle: "Show app progress indicators", target: nil, action: nil)
     private let enableActivityModeCheckbox = NSButton(checkboxWithTitle: "Activity mode (hold Control for CPU/RAM)", target: nil, action: nil)
-    private let enableWindowSwitcherCheckbox = NSButton(checkboxWithTitle: "Enable Option-Tab window switcher", target: nil, action: nil)
-    private let enableBareCommandLauncherCheckbox = NSButton(checkboxWithTitle: "Tap Command to open Apps launcher", target: nil, action: nil)
+    private let enableWindowSwitcherCheckbox = NSButton(checkboxWithTitle: "Enable Alt-Tab / Option-Tab window switcher", target: nil, action: nil)
+    private let enableBareCommandLauncherCheckbox = NSButton(checkboxWithTitle: "Enable Apps launcher shortcut", target: nil, action: nil)
+    private let appsLauncherShortcutPopupButton = NSPopUpButton()
 
     private let launcherTableView = NSTableView()
     private let launcherScrollView = NSScrollView()
@@ -96,6 +97,7 @@ final class SettingsView: NSView {
 
         dockModePopupButton.addItems(withTitles: ["Independent", "Auto-Hide Dock", "Hide Dock"])
         layoutModePopupButton.addItems(withTitles: ["Full Width", "Full Width Glass", "Compact Centered", "Compact Glass"])
+        appsLauncherShortcutPopupButton.addItems(withTitles: ["Control-Option-Return", "Option-Space", "Control-Option-Space", "Tap Command"])
         configureLauncherTableView()
         configureBlacklistTableView()
 
@@ -133,7 +135,8 @@ final class SettingsView: NSView {
             makeCheckboxRow(showOverFullscreenAppsCheckbox),
             makeCheckboxRow(showOnAllMonitorsCheckbox),
             makeCheckboxRow(enableWindowSwitcherCheckbox),
-            makeCheckboxRow(enableBareCommandLauncherCheckbox)
+            makeCheckboxRow(enableBareCommandLauncherCheckbox),
+            makeLabeledControlRow(label: "Apps launcher shortcut", control: appsLauncherShortcutPopupButton)
         ])
 
         let launcherTab = NSTabViewItem(identifier: "launcher")
@@ -267,6 +270,9 @@ final class SettingsView: NSView {
 
         enableBareCommandLauncherCheckbox.target = self
         enableBareCommandLauncherCheckbox.action = #selector(enableBareCommandLauncherChanged(_:))
+
+        appsLauncherShortcutPopupButton.target = self
+        appsLauncherShortcutPopupButton.action = #selector(appsLauncherShortcutChanged(_:))
 
         removePinnedAppButton.target = self
         removePinnedAppButton.action = #selector(removePinnedApp(_:))
@@ -441,6 +447,26 @@ final class SettingsView: NSView {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.enableBareCommandLauncherCheckbox.state = value ? .on : .off
+                self?.appsLauncherShortcutPopupButton.isEnabled = value
+            }
+            .store(in: &cancellables)
+
+        settings.$appsLauncherShortcut
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                let index: Int
+                switch value {
+                case .controlOptionReturn:
+                    index = 0
+                case .optionSpace:
+                    index = 1
+                case .controlOptionSpace:
+                    index = 2
+                case .commandTap:
+                    index = 3
+                }
+
+                self?.appsLauncherShortcutPopupButton.selectItem(at: index)
             }
             .store(in: &cancellables)
     }
@@ -985,6 +1011,20 @@ final class SettingsView: NSView {
     @objc
     private func enableBareCommandLauncherChanged(_ sender: NSButton) {
         settings.enableBareCommandLauncher = sender.state == .on
+    }
+
+    @objc
+    private func appsLauncherShortcutChanged(_ sender: NSPopUpButton) {
+        switch sender.indexOfSelectedItem {
+        case 3:
+            settings.appsLauncherShortcut = .commandTap
+        case 2:
+            settings.appsLauncherShortcut = .controlOptionSpace
+        case 1:
+            settings.appsLauncherShortcut = .optionSpace
+        default:
+            settings.appsLauncherShortcut = .controlOptionReturn
+        }
     }
 
     @objc

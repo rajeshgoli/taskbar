@@ -3,6 +3,8 @@ import Combine
 import Darwin
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let minimumTaskbarReservationHeight: CGFloat = 32
+
     private var panels: [CGDirectDisplayID: TaskbarPanel] = [:]
     private var contentViews: [CGDirectDisplayID: TaskbarContentView] = [:]
     private var windowManager: WindowManager?
@@ -20,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var restoreWindowsMenuItem: NSMenuItem?
+    private let singleInstanceLock = SingleInstanceLock()
     private var cancellables = Set<AnyCancellable>()
     private var signalSources: [DispatchSourceSignal] = []
     private var isHandlingTerminationSignal = false
@@ -27,6 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard singleInstanceLock.acquire() else {
+            print("DeskBar: another instance is already running; exiting duplicate.")
+            NSApp.terminate(nil)
+            return
+        }
+
         let settings = TaskbarSettings()
         self.settings = settings
         loginItemManager = LoginItemManager(settings: settings)
@@ -47,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             blacklistManager: blacklistManager,
             pinnedAppManager: pinnedAppManager
         )
-        wm.taskbarHeight = settings.taskbarHeight
+        wm.taskbarHeight = Self.taskbarReservationHeight(for: settings.taskbarHeight)
         windowManager = wm
 
         let badgeMonitor = BadgeMonitor()
@@ -230,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.$taskbarHeight
             .receive(on: RunLoop.main)
             .sink { [weak self] height in
-                self?.windowManager?.taskbarHeight = height
+                self?.windowManager?.taskbarHeight = Self.taskbarReservationHeight(for: height)
             }
             .store(in: &cancellables)
 
@@ -400,5 +409,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return NSScreen.screens.prefix(1).map { $0 }
+    }
+
+    private static func taskbarReservationHeight(for height: CGFloat) -> CGFloat {
+        max(height, minimumTaskbarReservationHeight)
     }
 }

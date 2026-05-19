@@ -531,8 +531,9 @@ Settings table:
 | Show over full-screen apps | false |
 | Start at login | false |
 | Show on all monitors | true |
-| Enable Option-Tab window switcher | true |
-| Tap Command to open Apps launcher | true |
+| Enable Alt-Tab / Option-Tab window switcher | true |
+| Enable Apps launcher shortcut | true |
+| Apps launcher shortcut | `controlOptionReturn` (options: `controlOptionReturn`, `optionSpace`, `controlOptionSpace`, `commandTap`) |
 
 Appearance includes a "Reset Sliders to Defaults" action that restores taskbar height, title font size, max task width, and thumbnail size to their default values.
 

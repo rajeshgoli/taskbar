@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 
 enum WindowSwitcherActivationAction: Equatable {
     case raiseAXWindow
@@ -9,6 +10,8 @@ enum WindowSwitcherActivationAction: Equatable {
 
 final class WindowSwitcherService {
     private static let tabKeyCode: CGKeyCode = 48
+    private static let spaceKeyCode: CGKeyCode = 49
+    private static let returnKeyCode: CGKeyCode = 36
     private static let escapeKeyCode: CGKeyCode = 53
     static let eventTypesOfInterest: [CGEventType] = [
         .keyDown,
@@ -48,6 +51,8 @@ final class WindowSwitcherService {
     private var selectedIndex: Int?
     private var thumbnailProvider: WindowSwitcherThumbnailProvider?
     private var bareCommandDetector = BareCommandShortcutDetector()
+    private var isAccessibilityGranted = false
+    private var cancellables = Set<AnyCancellable>()
 
     init(
         windowManager: WindowManager,
@@ -59,6 +64,7 @@ final class WindowSwitcherService {
         self.settings = settings
         self.thumbnailService = thumbnailService
         self.accessibilityService = accessibilityService
+        bindSettings()
         updateForAccessibilityPermissionChange(isGranted: AXIsProcessTrusted())
     }
 
@@ -67,10 +73,49 @@ final class WindowSwitcherService {
     }
 
     func updateForAccessibilityPermissionChange(isGranted: Bool) {
-        if isGranted {
-            start()
-        } else {
-            stop()
+        isAccessibilityGranted = isGranted
+        reconcileEventTap()
+    }
+
+    static func shouldInstallEventTap(
+        isAccessibilityGranted: Bool,
+        enableWindowSwitcher: Bool,
+        enableBareCommandLauncher: Bool
+    ) -> Bool {
+        isAccessibilityGranted && (enableWindowSwitcher || enableBareCommandLauncher)
+    }
+
+    static func matchesAppsLauncherShortcut(
+        shortcut: AppsLauncherShortcut,
+        type: CGEventType,
+        keyCode: CGKeyCode,
+        flags: CGEventFlags
+    ) -> Bool {
+        guard type == .keyDown else {
+            return false
+        }
+
+        switch shortcut {
+        case .commandTap:
+            return false
+        case .controlOptionReturn:
+            return keyCode == returnKeyCode &&
+                flags.contains(.maskControl) &&
+                flags.contains(.maskAlternate) &&
+                !flags.contains(.maskCommand) &&
+                !flags.contains(.maskShift)
+        case .controlOptionSpace:
+            return keyCode == spaceKeyCode &&
+                flags.contains(.maskControl) &&
+                flags.contains(.maskAlternate) &&
+                !flags.contains(.maskCommand) &&
+                !flags.contains(.maskShift)
+        case .optionSpace:
+            return keyCode == spaceKeyCode &&
+                flags.contains(.maskAlternate) &&
+                !flags.contains(.maskCommand) &&
+                !flags.contains(.maskControl) &&
+                !flags.contains(.maskShift)
         }
     }
 
@@ -175,6 +220,57 @@ final class WindowSwitcherService {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
+    private func bindSettings() {
+        settings.$enableWindowSwitcher
+            .combineLatest(settings.$enableBareCommandLauncher)
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] enableWindowSwitcher, enableBareCommandLauncher in
+                guard let self else {
+                    return
+                }
+
+                if !enableWindowSwitcher {
+                    Task { @MainActor [weak self] in
+                        self?.endSession(commitSelection: false)
+                    }
+                }
+
+                if !enableBareCommandLauncher {
+                    self.bareCommandDetector.cancel()
+                }
+
+                self.reconcileEventTap()
+            }
+            .store(in: &cancellables)
+
+        settings.$appsLauncherShortcut
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] shortcut in
+                guard let self else {
+                    return
+                }
+
+                if shortcut != .commandTap {
+                    self.bareCommandDetector.cancel()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func reconcileEventTap() {
+        if Self.shouldInstallEventTap(
+            isAccessibilityGranted: isAccessibilityGranted,
+            enableWindowSwitcher: settings.enableWindowSwitcher,
+            enableBareCommandLauncher: settings.enableBareCommandLauncher
+        ) {
+            start()
+        } else {
+            stop()
+        }
+    }
+
     private func stop() {
         runOnMainActorSynchronously {
             self.endSession(commitSelection: false)
@@ -235,11 +331,12 @@ final class WindowSwitcherService {
 
         if type == .flagsChanged {
             if settings.enableBareCommandLauncher,
+               settings.appsLauncherShortcut == .commandTap,
                bareCommandDetector.handleFlagsChanged(flags) {
                 DispatchQueue.main.async {
                     AppsLauncher.open()
                 }
-            } else if !settings.enableBareCommandLauncher {
+            } else if !settings.enableBareCommandLauncher || settings.appsLauncherShortcut != .commandTap {
                 bareCommandDetector.cancel()
             }
 
@@ -266,6 +363,19 @@ final class WindowSwitcherService {
 
         if type == .keyDown {
             bareCommandDetector.handleKeyDown()
+        }
+
+        if settings.enableBareCommandLauncher,
+           Self.matchesAppsLauncherShortcut(
+               shortcut: settings.appsLauncherShortcut,
+               type: type,
+               keyCode: keyCode,
+               flags: flags
+           ) {
+            DispatchQueue.main.async {
+                AppsLauncher.open()
+            }
+            return nil
         }
 
         guard keyCode == Self.tabKeyCode,

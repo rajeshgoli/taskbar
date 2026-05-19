@@ -20,6 +20,13 @@ enum DeskBarLayoutMode: String, CaseIterable {
     case compactGlass
 }
 
+enum AppsLauncherShortcut: String, CaseIterable {
+    case commandTap
+    case controlOptionReturn
+    case controlOptionSpace
+    case optionSpace
+}
+
 class TaskbarSettings: ObservableObject {
     static let defaultTaskbarHeight: CGFloat = 40
     static let defaultTitleFontSize: CGFloat = 12
@@ -104,6 +111,10 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(enableBareCommandLauncher, forKey: "enableBareCommandLauncher") }
     }
 
+    @Published var appsLauncherShortcut: AppsLauncherShortcut {
+        didSet { defaults.set(appsLauncherShortcut.rawValue, forKey: "appsLauncherShortcut") }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? Self.defaultTaskbarHeight
@@ -132,6 +143,7 @@ class TaskbarSettings: ObservableObject {
         layoutMode = DeskBarLayoutMode(rawValue: defaults.string(forKey: "layoutMode") ?? "") ?? .fullWidth
         enableWindowSwitcher = defaults.object(forKey: "enableWindowSwitcher") as? Bool ?? true
         enableBareCommandLauncher = defaults.object(forKey: "enableBareCommandLauncher") as? Bool ?? true
+        appsLauncherShortcut = AppsLauncherShortcut(rawValue: defaults.string(forKey: "appsLauncherShortcut") ?? "") ?? .controlOptionReturn
     }
 
     func resetAppearanceSlidersToDefaults() {

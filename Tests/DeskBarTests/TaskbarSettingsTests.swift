@@ -23,6 +23,7 @@ struct TaskbarSettingsTests {
         #expect(settings.layoutMode == .fullWidth)
         #expect(settings.enableWindowSwitcher)
         #expect(settings.enableBareCommandLauncher)
+        #expect(settings.appsLauncherShortcut == .controlOptionReturn)
     }
 
     @Test
@@ -55,12 +56,14 @@ struct TaskbarSettingsTests {
         settings.layoutMode = .fullWidthGlass
         settings.enableWindowSwitcher = false
         settings.enableBareCommandLauncher = false
+        settings.appsLauncherShortcut = .optionSpace
 
         settings = TaskbarSettings(defaults: defaults)
 
         #expect(settings.layoutMode == .fullWidthGlass)
         #expect(settings.enableWindowSwitcher == false)
         #expect(settings.enableBareCommandLauncher == false)
+        #expect(settings.appsLauncherShortcut == .optionSpace)
     }
 
     @Test
