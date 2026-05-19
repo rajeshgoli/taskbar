@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import DeskBar
@@ -61,4 +62,28 @@ func singleInstanceLockFallsBackWhenPrimarySetupFails() throws {
     }
 
     #expect(lock.acquire())
+}
+
+@Test
+func singleInstanceLockDoesNotFollowLockFileSymlink() throws {
+    let directoryURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("DeskBarTests-\(UUID().uuidString)", isDirectory: true)
+    let lockURL = directoryURL.appendingPathComponent("deskbar.lock")
+    let targetURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("DeskBarTests-target-\(UUID().uuidString)")
+
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    try "keep me".write(to: targetURL, atomically: true, encoding: .utf8)
+    guard symlink(targetURL.path, lockURL.path) == 0 else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    defer {
+        try? FileManager.default.removeItem(at: directoryURL)
+        try? FileManager.default.removeItem(at: targetURL)
+    }
+
+    let lock = SingleInstanceLock(lockURL: lockURL, fallbackLockURL: nil)
+
+    #expect(lock.acquire() == false)
+    #expect((try? String(contentsOf: targetURL, encoding: .utf8)) == "keep me")
 }

@@ -72,19 +72,19 @@ final class SingleInstanceLock {
     }
 
     private func acquireLock(at url: URL) -> AcquisitionResult {
-        do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-        } catch {
-            print("DeskBar: failed to create lock directory at \(url.deletingLastPathComponent().path): \(error)")
+        let directoryURL = url.deletingLastPathComponent()
+        guard ensureLockDirectory(at: directoryURL) else {
             return .setupFailed
         }
 
-        let descriptor = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        let descriptor = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             print("DeskBar: failed to open instance lock at \(url.path)")
+            return .setupFailed
+        }
+
+        guard validateLockFile(descriptor: descriptor, url: url) else {
+            close(descriptor)
             return .setupFailed
         }
 
@@ -96,6 +96,71 @@ final class SingleInstanceLock {
         fileDescriptor = descriptor
         writeCurrentPID()
         return .acquired
+    }
+
+    private func ensureLockDirectory(at url: URL) -> Bool {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            print("DeskBar: failed to create lock parent directory at \(url.deletingLastPathComponent().path): \(error)")
+            return false
+        }
+
+        if mkdir(url.path, S_IRWXU) == 0 {
+            return true
+        }
+
+        guard errno == EEXIST else {
+            print("DeskBar: failed to create lock directory at \(url.path)")
+            return false
+        }
+
+        var directoryInfo = stat()
+        guard lstat(url.path, &directoryInfo) == 0 else {
+            print("DeskBar: failed to inspect lock directory at \(url.path)")
+            return false
+        }
+
+        guard directoryInfo.st_mode & S_IFMT == S_IFDIR else {
+            print("DeskBar: lock directory path is not a directory: \(url.path)")
+            return false
+        }
+
+        guard directoryInfo.st_uid == getuid() else {
+            print("DeskBar: lock directory is not owned by the current user: \(url.path)")
+            return false
+        }
+
+        if directoryInfo.st_mode & (S_IWGRP | S_IWOTH) != 0,
+           chmod(url.path, S_IRWXU) != 0 {
+            print("DeskBar: failed to restrict lock directory permissions at \(url.path)")
+            return false
+        }
+
+        return true
+    }
+
+    private func validateLockFile(descriptor: Int32, url: URL) -> Bool {
+        var fileInfo = stat()
+        guard fstat(descriptor, &fileInfo) == 0 else {
+            print("DeskBar: failed to inspect instance lock at \(url.path)")
+            return false
+        }
+
+        guard fileInfo.st_mode & S_IFMT == S_IFREG else {
+            print("DeskBar: instance lock is not a regular file at \(url.path)")
+            return false
+        }
+
+        guard fileInfo.st_uid == getuid() else {
+            print("DeskBar: instance lock is not owned by the current user: \(url.path)")
+            return false
+        }
+
+        return true
     }
 
     private func writeCurrentPID() {
