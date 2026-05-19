@@ -69,7 +69,7 @@ final class LauncherZoneView: NSStackView {
         buttonsStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         addArrangedSubview(buttonsStackView)
-        heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
+        heightAnchor.constraint(greaterThanOrEqualToConstant: 32).isActive = true
     }
 
     private func configureDividerView() {
@@ -384,7 +384,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 36, height: 42)
+        NSSize(width: 36, height: 32)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -464,7 +464,7 @@ private final class LauncherZoneButtonView: NSView, NSDraggingSource {
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 36),
-            heightAnchor.constraint(equalToConstant: 42),
+            heightAnchor.constraint(equalToConstant: 32),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),

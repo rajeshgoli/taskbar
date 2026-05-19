@@ -58,7 +58,7 @@ final class LauncherButtonView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 36, height: 42)
+        NSSize(width: 36, height: 32)
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -72,7 +72,7 @@ tccutil reset Accessibility com.deskbar.app
 | **Shift+Option+Tab** | Moves backward in the window switcher |
 | **Release Option** | Activates the highlighted window |
 | **Escape** while switching | Cancels the switcher without changing windows |
-| **Tap Command by itself** | Opens the macOS Apps launcher |
+| **Apps launcher shortcut** | Opens the macOS Apps launcher; defaults to Control-Option-Space and can be changed in Settings |
 | **Hover** a task button | Shows live window thumbnail (if Screen Recording granted) |
 | **Middle-click** a task button | Closes that window |
 | **Click a tray icon** | Activates the app, or reopens it if it is running without windows |
@@ -87,7 +87,7 @@ Accessible via the gear icon in the menu bar.
 |-----|---------|
 | General | Start at login, Dock mode |
 | Appearance | DeskBar layout, taskbar height, font size, max button width, show titles, thumbnail size, reset sliders |
-| Behavior | Hover delay, group by app, drag reorder, middle-click closes, attention/progress indicators, activity mode, show over full-screen, multi-monitor, Option-Tab, Command launcher |
+| Behavior | Hover delay, group by app, drag reorder, middle-click closes, attention/progress indicators, activity mode, show over full-screen, multi-monitor, Alt-Tab / Option-Tab, Apps launcher shortcut |
 | Launcher | Manage pinned apps |
 | Blacklist | Manage hidden apps |
 

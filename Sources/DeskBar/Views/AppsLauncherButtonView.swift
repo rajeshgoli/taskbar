@@ -27,7 +27,7 @@ final class AppsLauncherButtonView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 36, height: 42)
+        NSSize(width: 36, height: 32)
     }
 
     override func updateTrackingAreas() {
@@ -81,7 +81,7 @@ final class AppsLauncherButtonView: NSView {
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 36),
-            heightAnchor.constraint(equalToConstant: 42),
+            heightAnchor.constraint(equalToConstant: 32),
 
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),

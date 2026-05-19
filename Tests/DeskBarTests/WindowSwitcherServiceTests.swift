@@ -13,6 +13,94 @@ func windowSwitcherEventTapIncludesPointerEventsForBareCommandCancellation() {
 }
 
 @Test
+func windowSwitcherEventTapRequiresAccessibilityAndAtLeastOneShortcut() {
+    #expect(
+        WindowSwitcherService.shouldInstallEventTap(
+            isAccessibilityGranted: true,
+            enableWindowSwitcher: true,
+            enableBareCommandLauncher: false
+        )
+    )
+    #expect(
+        WindowSwitcherService.shouldInstallEventTap(
+            isAccessibilityGranted: true,
+            enableWindowSwitcher: false,
+            enableBareCommandLauncher: true
+        )
+    )
+    #expect(
+        WindowSwitcherService.shouldInstallEventTap(
+            isAccessibilityGranted: true,
+            enableWindowSwitcher: false,
+            enableBareCommandLauncher: false
+        ) == false
+    )
+    #expect(
+        WindowSwitcherService.shouldInstallEventTap(
+            isAccessibilityGranted: false,
+            enableWindowSwitcher: true,
+            enableBareCommandLauncher: true
+        ) == false
+    )
+}
+
+@Test
+func appsLauncherShortcutMatchesConfiguredSpaceCombos() {
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .controlOptionSpace,
+            type: .keyDown,
+            keyCode: 49,
+            flags: [.maskControl, .maskAlternate]
+        )
+    )
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .optionSpace,
+            type: .keyDown,
+            keyCode: 49,
+            flags: [.maskAlternate]
+        )
+    )
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .commandTap,
+            type: .keyDown,
+            keyCode: 49,
+            flags: [.maskCommand]
+        ) == false
+    )
+}
+
+@Test
+func appsLauncherShortcutRejectsSystemAndCopyPasteLikeCombos() {
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .controlOptionSpace,
+            type: .keyDown,
+            keyCode: 49,
+            flags: [.maskCommand, .maskAlternate]
+        ) == false
+    )
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .controlOptionSpace,
+            type: .keyDown,
+            keyCode: 8,
+            flags: [.maskCommand]
+        ) == false
+    )
+    #expect(
+        WindowSwitcherService.matchesAppsLauncherShortcut(
+            shortcut: .controlOptionSpace,
+            type: .keyUp,
+            keyCode: 49,
+            flags: [.maskControl, .maskAlternate]
+        ) == false
+    )
+}
+
+@Test
 func switchableWindowsFollowZOrderAndAppendUnlistedWindows() {
     let first = window(pid: 1, cgWindowID: 10, title: "First")
     let second = window(pid: 2, cgWindowID: 20, title: "Second")

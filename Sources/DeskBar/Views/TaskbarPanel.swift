@@ -3,15 +3,18 @@ import Combine
 
 final class TaskbarPanel: NSPanel {
     private static let bannerHeight: CGFloat = 32
+    private static let minimumContentHeight: CGFloat = 32
     private static let compactHorizontalMargin: CGFloat = 12
     private static let compactMinimumWidth: CGFloat = 420
     private static let compactFallbackWidth: CGFloat = 860
+    private static let glassHorizontalMargin: CGFloat = 12
 
     let displayID: CGDirectDisplayID
 
     private let permissionsManager: PermissionsManager
     private let settings: TaskbarSettings
     private let rootView: TaskbarPanelRootView
+    private let chromeShadowView: NSView
     private let visualEffectView: NSVisualEffectView
     private weak var hostedView: NSView?
     private var cancellables = Set<AnyCancellable>()
@@ -32,6 +35,7 @@ final class TaskbarPanel: NSPanel {
         )
 
         rootView = TaskbarPanelRootView(settings: settings, frame: NSRect(origin: .zero, size: frame.size))
+        chromeShadowView = NSView(frame: NSRect(origin: .zero, size: frame.size))
         visualEffectView = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
         super.init(
             contentRect: frame,
@@ -52,12 +56,18 @@ final class TaskbarPanel: NSPanel {
         rootView.wantsLayer = true
         rootView.layer?.backgroundColor = NSColor.clear.cgColor
 
+        chromeShadowView.autoresizingMask = [.width, .height]
+        chromeShadowView.wantsLayer = true
+        chromeShadowView.layer?.backgroundColor = NSColor.clear.cgColor
+
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .behindWindow
         visualEffectView.state = .active
+        visualEffectView.autoresizingMask = [.width, .height]
         visualEffectView.wantsLayer = true
-        rootView.addSubview(visualEffectView)
-        rootView.chromeView = visualEffectView
+        chromeShadowView.addSubview(visualEffectView)
+        rootView.addSubview(chromeShadowView)
+        rootView.chromeView = chromeShadowView
         contentView = rootView
         updateChromeLayout(animated: false)
 
@@ -135,15 +145,20 @@ final class TaskbarPanel: NSPanel {
         )
         let shouldAnimate = animated &&
             !settings.layoutMode.usesCompactWidth &&
-            !Self.framesApproximatelyEqual(visualEffectView.frame, chromeFrame)
+            !Self.framesApproximatelyEqual(chromeShadowView.frame, chromeFrame)
 
         if shouldAnimate {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
-                visualEffectView.animator().frame = chromeFrame
+                chromeShadowView.animator().frame = chromeFrame
             }
-        } else if !Self.framesApproximatelyEqual(visualEffectView.frame, chromeFrame) {
-            visualEffectView.frame = chromeFrame
+        } else if !Self.framesApproximatelyEqual(chromeShadowView.frame, chromeFrame) {
+            chromeShadowView.frame = chromeFrame
+        }
+
+        let effectFrame = chromeShadowView.bounds
+        if !Self.framesApproximatelyEqual(visualEffectView.frame, effectFrame) {
+            visualEffectView.frame = effectFrame
         }
 
         let hostedFrame = visualEffectView.bounds
@@ -162,7 +177,8 @@ final class TaskbarPanel: NSPanel {
             return .zero
         }
 
-        let height = taskbarHeight + (isAccessibilityGranted ? 0 : bannerHeight)
+        let contentHeight = max(taskbarHeight, minimumContentHeight)
+        let height = contentHeight + (isAccessibilityGranted ? 0 : bannerHeight)
 
         return NSRect(
             x: screen.frame.origin.x,
@@ -180,8 +196,10 @@ final class TaskbarPanel: NSPanel {
         let width: CGFloat
 
         switch layoutMode {
-        case .fullWidth, .fullWidthGlass:
+        case .fullWidth:
             width = bounds.width
+        case .fullWidthGlass:
+            width = max(120, bounds.width - glassHorizontalMargin * 2)
         case .compact, .compactGlass:
             let maximumWidth = max(120, bounds.width - compactHorizontalMargin * 2)
             let minimumWidth = min(compactMinimumWidth, maximumWidth)
@@ -207,10 +225,22 @@ final class TaskbarPanel: NSPanel {
     }
 
     private func updateVisualStyle(for frame: NSRect) {
-        let usesGlassChrome = settings.layoutMode == .compactGlass || settings.layoutMode == .fullWidthGlass
-        visualEffectView.layer?.cornerRadius = usesGlassChrome ? min(frame.height / 2, 18) : 0
+        let usesGlassChrome = settings.layoutMode.usesGlassChrome
+        let cornerRadius = usesGlassChrome ? min(frame.height / 2, 18) : 0
+
+        chromeShadowView.layer?.cornerRadius = cornerRadius
+        chromeShadowView.layer?.masksToBounds = false
+        chromeShadowView.layer?.shadowColor = NSColor.black.cgColor
+        chromeShadowView.layer?.shadowOpacity = usesGlassChrome ? 0.28 : 0
+        chromeShadowView.layer?.shadowRadius = usesGlassChrome ? 14 : 0
+        chromeShadowView.layer?.shadowOffset = NSSize(width: 0, height: 2)
+        chromeShadowView.layer?.shadowPath = usesGlassChrome
+            ? CGPath(roundedRect: chromeShadowView.bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+            : nil
+
+        visualEffectView.layer?.cornerRadius = cornerRadius
+        visualEffectView.layer?.cornerCurve = .continuous
         visualEffectView.layer?.masksToBounds = usesGlassChrome
-        visualEffectView.shadow = usesGlassChrome ? Self.glassShadow() : nil
     }
 
     private static func framesApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
@@ -220,18 +250,19 @@ final class TaskbarPanel: NSPanel {
             abs(lhs.size.height - rhs.size.height) < 0.5
     }
 
-    private static func glassShadow() -> NSShadow {
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
-        shadow.shadowBlurRadius = 16
-        shadow.shadowOffset = NSSize(width: 0, height: 2)
-        return shadow
-    }
 }
 
 private extension DeskBarLayoutMode {
     var usesCompactWidth: Bool {
         self == .compact || self == .compactGlass
+    }
+
+    var usesGlassChrome: Bool {
+        self == .compactGlass || self == .fullWidthGlass
+    }
+
+    var limitsHitTestingToChrome: Bool {
+        usesCompactWidth || usesGlassChrome
     }
 }
 
@@ -250,7 +281,7 @@ private final class TaskbarPanelRootView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if settings.layoutMode.usesCompactWidth,
+        if settings.layoutMode.limitsHitTestingToChrome,
            let chromeView,
            !chromeView.frame.contains(point) {
             return nil
