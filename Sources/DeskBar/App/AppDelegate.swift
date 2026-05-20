@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginItemManager: LoginItemManager?
     private var badgeMonitor: BadgeMonitor?
     private var appStateMonitor: AppStateMonitor?
+    private var smPluginService: SMPluginService?
     private var systemResourceMonitor: SystemResourceMonitor?
     private var thumbnailService: ThumbnailService?
     private var windowLayoutSnapshotManager: WindowLayoutSnapshotManager?
@@ -66,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appStateMonitor = AppStateMonitor()
         self.appStateMonitor = appStateMonitor
 
+        let smPluginService = SMPluginService(isEnabled: settings.enableSessionManagerPlugin)
+        self.smPluginService = smPluginService
+
         let systemResourceMonitor = SystemResourceMonitor()
         self.systemResourceMonitor = systemResourceMonitor
 
@@ -99,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         configureStatusItem()
         bindDockMode(settings: settings)
+        bindSessionManagerPlugin(settings: settings, smPluginService: smPluginService)
         configureSignalHandlers()
     }
 
@@ -140,6 +145,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] mode in
                 self?.dockManager?.apply(mode: mode)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func bindSessionManagerPlugin(settings: TaskbarSettings, smPluginService: SMPluginService) {
+        settings.$enableSessionManagerPlugin
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { isEnabled in
+                Task { @MainActor in
+                    smPluginService.setEnabled(isEnabled)
+                }
             }
             .store(in: &cancellables)
     }
@@ -300,6 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let permissionsManager,
             let badgeMonitor,
             let appStateMonitor,
+            let smPluginService,
             let systemResourceMonitor,
             let blacklistManager,
             let pinnedAppManager
@@ -324,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 windowManager: windowManager,
                 badgeMonitor: badgeMonitor,
                 appStateMonitor: appStateMonitor,
+                smPluginService: smPluginService,
                 permissionsManager: permissionsManager,
                 settings: settings,
                 blacklistManager: blacklistManager,

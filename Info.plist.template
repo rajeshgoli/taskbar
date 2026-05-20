@@ -20,6 +20,13 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>DeskBar uses Terminal window metadata to show Session Manager agent names and activity on terminal task buttons.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
