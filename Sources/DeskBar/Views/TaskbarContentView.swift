@@ -1395,6 +1395,11 @@ final class TaskbarContentView: NSView {
         }
 
         switch command.action {
+        case .rename:
+            smPluginService?.rename(
+                annotation: command.annotation,
+                presentationView: command.presentationView
+            )
         case .openTerminalLikeThis:
             smPluginService?.openTerminalLike(annotation: command.annotation, inWorkingDirectory: true)
         case .retire:

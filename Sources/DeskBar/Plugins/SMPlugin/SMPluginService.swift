@@ -142,6 +142,7 @@ private struct SMAgentTabFetchSnapshot {
 }
 
 enum SMPluginAgentMenuAction {
+    case rename
     case openTerminalLikeThis
     case retire
     case retireAndClose
@@ -150,6 +151,7 @@ enum SMPluginAgentMenuAction {
 final class SMPluginAgentMenuCommand: NSObject {
     let action: SMPluginAgentMenuAction
     let annotation: SMAgentWindowAnnotation
+    weak var presentationView: NSView?
 
     init(action: SMPluginAgentMenuAction, annotation: SMAgentWindowAnnotation) {
         self.action = action
@@ -183,6 +185,7 @@ enum SMPluginAgentMenuFactory {
         }
         menu.addItem(metadataItem("Dir: \(abbreviatedPath(annotation.workingDirectory))"))
         menu.addItem(.separator())
+        menu.addItem(item("Rename", .rename, annotation, target, action))
         menu.addItem(item("New Terminal Like This", .openTerminalLikeThis, annotation, target, action))
         menu.addItem(.separator())
         menu.addItem(item("Retire", .retire, annotation, target, action))
@@ -246,6 +249,7 @@ final class SMPluginService: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var isEnabled: Bool
     private var lastObservedAgentTabAtBySessionID: [String: Date] = [:]
+    private var renamePopover: NSPopover?
 
     init(pollInterval: TimeInterval = 2.0, isEnabled: Bool = true) {
         self.pollInterval = pollInterval
@@ -398,6 +402,69 @@ final class SMPluginService: ObservableObject {
                 workingDirectory: annotation.workingDirectory,
                 inWorkingDirectory: inWorkingDirectory
             )
+        }
+    }
+
+    func rename(annotation: SMAgentWindowAnnotation, presentationView: NSView?) {
+        renamePopover?.close()
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = SMPluginRenameViewController.preferredSize
+        popover.contentViewController = SMPluginRenameViewController(
+            annotation: annotation,
+            onRename: { [weak self, weak popover] newName in
+                popover?.close()
+                self?.renamePopover = nil
+                self?.submitRename(
+                    annotation: annotation,
+                    newName: newName
+                )
+            },
+            onCancel: { [weak self, weak popover] in
+                popover?.close()
+                self?.renamePopover = nil
+            }
+        )
+
+        renamePopover = popover
+        NSApp.activate(ignoringOtherApps: true)
+        if let presentationView, presentationView.window != nil {
+            popover.show(
+                relativeTo: presentationView.bounds,
+                of: presentationView,
+                preferredEdge: .maxY
+            )
+        } else {
+            popover.show(
+                relativeTo: NSRect(x: 0, y: 0, width: 1, height: 1),
+                of: NSApp.mainWindow?.contentView ?? NSView(),
+                preferredEdge: .maxY
+            )
+        }
+    }
+
+    private func submitRename(annotation: SMAgentWindowAnnotation, newName: String) {
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, trimmedName != annotation.friendlyName else {
+            return
+        }
+
+        Task.detached(priority: .userInitiated) {
+            let result = await Self.renameAgentViaAPI(
+                sessionID: annotation.sessionID,
+                newName: trimmedName
+            )
+
+            await MainActor.run { [weak self] in
+                guard result.success else {
+                    Self.presentRenameFailureAlert(message: result.errorMessage)
+                    return
+                }
+
+                self?.refresh()
+            }
         }
     }
 
@@ -974,6 +1041,70 @@ final class SMPluginService: ObservableObject {
         ) != nil
     }
 
+    private nonisolated static func renameAgentViaAPI(
+        sessionID: String,
+        newName: String
+    ) async -> (success: Bool, errorMessage: String?) {
+        guard
+            let encodedSessionID = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+            let renameURL = URL(string: "http://127.0.0.1:8420/sessions/\(encodedSessionID)")
+        else {
+            return (false, "Invalid session id.")
+        }
+
+        var request = URLRequest(url: renameURL)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["friendly_name": newName])
+        request.timeoutInterval = retireTimeout
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return (false, "No response from Session Manager.")
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                return (false, apiErrorMessage(from: data) ?? "Session Manager returned \(httpResponse.statusCode).")
+            }
+
+            return (true, nil)
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
+    private nonisolated static func apiErrorMessage(from data: Data) -> String? {
+        guard
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let detail = payload["detail"]
+        else {
+            return nil
+        }
+
+        if let message = detail as? String {
+            return message
+        }
+
+        if let detailPayload = detail as? [String: Any],
+           let message = detailPayload["message"] as? String {
+            return message
+        }
+
+        return nil
+    }
+
+    @MainActor
+    private static func presentRenameFailureAlert(message: String?) {
+        let alert = NSAlert()
+        alert.messageText = "Rename Failed"
+        alert.informativeText = message ?? "DeskBar could not rename this session."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
     private nonisolated static func retireAgentViaAPI(sessionID: String) async -> Bool {
         guard
             let encodedSessionID = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
@@ -1165,6 +1296,123 @@ final class SMPluginService: ObservableObject {
         } else {
             try? data.write(to: diagnosticLogURL)
         }
+    }
+}
+
+private final class SMPluginRenameViewController: NSViewController, NSTextFieldDelegate {
+    static let preferredSize = NSSize(width: 360, height: 166)
+
+    private let annotation: SMAgentWindowAnnotation
+    private let onRename: (String) -> Void
+    private let onCancel: () -> Void
+    private let nameField = NSTextField()
+    private let renameButton = NSButton(title: "Rename", target: nil, action: nil)
+
+    init(
+        annotation: SMAgentWindowAnnotation,
+        onRename: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.annotation = annotation
+        self.onRename = onRename
+        self.onCancel = onCancel
+        super.init(nibName: nil, bundle: nil)
+        preferredContentSize = Self.preferredSize
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let rootView = NSView(frame: NSRect(origin: .zero, size: Self.preferredSize))
+        rootView.translatesAutoresizingMaskIntoConstraints = true
+
+        let titleLabel = NSTextField(labelWithString: "Rename Agent")
+        titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let sessionLabel = NSTextField(labelWithString: annotation.sessionID)
+        sessionLabel.textColor = .secondaryLabelColor
+        sessionLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        sessionLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        nameField.stringValue = annotation.friendlyName
+        nameField.delegate = self
+        nameField.target = self
+        nameField.action = #selector(rename(_:))
+        nameField.translatesAutoresizingMaskIntoConstraints = false
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel(_:)))
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        renameButton.target = self
+        renameButton.action = #selector(rename(_:))
+        renameButton.keyEquivalent = "\r"
+        renameButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let buttonStack = NSStackView(views: [cancelButton, renameButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.alignment = .centerY
+        buttonStack.spacing = 8
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+
+        [titleLabel, sessionLabel, nameField, buttonStack].forEach(rootView.addSubview)
+
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 18),
+            titleLabel.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 18),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -18),
+
+            sessionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+            sessionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            sessionLabel.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -18),
+
+            nameField.topAnchor.constraint(equalTo: sessionLabel.bottomAnchor, constant: 14),
+            nameField.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            nameField.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -18),
+            nameField.heightAnchor.constraint(equalToConstant: 28),
+
+            cancelButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
+            renameButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 88),
+
+            buttonStack.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 16),
+            buttonStack.trailingAnchor.constraint(equalTo: nameField.trailingAnchor),
+            buttonStack.bottomAnchor.constraint(lessThanOrEqualTo: rootView.bottomAnchor, constant: -18)
+        ])
+
+        view = rootView
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.makeFirstResponder(nameField)
+        nameField.selectText(nil)
+        updateRenameButton()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        updateRenameButton()
+    }
+
+    private func updateRenameButton() {
+        let proposedName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameButton.isEnabled = !proposedName.isEmpty && proposedName != annotation.friendlyName
+    }
+
+    @objc
+    private func rename(_ sender: Any?) {
+        let proposedName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !proposedName.isEmpty, proposedName != annotation.friendlyName else {
+            return
+        }
+
+        onRename(proposedName)
+    }
+
+    @objc
+    private func cancel(_ sender: Any?) {
+        onCancel()
     }
 }
 
