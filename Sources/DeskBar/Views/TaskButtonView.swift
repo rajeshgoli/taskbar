@@ -754,7 +754,18 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private func makePluginMenu() -> NSMenu {
-        pluginMenuConfiguration?.menuProvider() ?? NSMenu()
+        let menu = pluginMenuConfiguration?.menuProvider() ?? NSMenu()
+        configurePluginMenuPresentationView(menu)
+        return menu
+    }
+
+    private func configurePluginMenuPresentationView(_ menu: NSMenu) {
+        let presentationView: NSView = showsPluginActionButton ? pluginActionButton : self
+        for item in menu.items {
+            if let command = item.representedObject as? SMPluginAgentMenuCommand {
+                command.presentationView = presentationView
+            }
+        }
     }
 
     private func addPluginMenuItems(to menu: NSMenu, includeTrailingSeparator: Bool) {
