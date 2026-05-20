@@ -27,6 +27,7 @@ final class WindowManager: ObservableObject {
     private var provisionalElements: [String: AXUIElement] = [:]
     private var promotionWorkItems: [String: DispatchWorkItem] = [:]
     private var windowOrder: [String] = []
+    private var publishedWindowState = PublishedWindowState(windows: [], boundsByWindowID: [:])
 
     init(
         accessibilityService: AccessibilityService = AccessibilityService(),
@@ -547,15 +548,28 @@ final class WindowManager: ObservableObject {
             currentOrder: currentWindowOrder ?? combined.map(\.id)
         )
 
-        windowOrder = reconciledOrder.filter { windowsByID[$0] != nil }
-        windows = windowOrder.compactMap { windowsByID[$0] }
+        let nextWindowOrder = reconciledOrder.filter { windowsByID[$0] != nil }
+        let nextWindows = nextWindowOrder.compactMap { windowsByID[$0] }
+        let nextPublishedWindowState = PublishedWindowState(
+            windows: nextWindows,
+            boundsByWindowID: boundsByWindowID(for: nextWindows)
+        )
+
+        windowOrder = nextWindowOrder
+        if nextPublishedWindowState != publishedWindowState {
+            publishedWindowState = nextPublishedWindowState
+            windows = nextWindows
+        }
 
         publishDerivedState()
     }
 
     private func publishDerivedState() {
         let visibleWindowPIDs = Self.visibleWindowPIDs(from: windows)
-        visibleWindows = windows.filter { visibleWindowPIDs.contains($0.pid) }
+        let nextVisibleWindows = windows.filter { visibleWindowPIDs.contains($0.pid) }
+        if nextVisibleWindows != visibleWindows {
+            visibleWindows = nextVisibleWindows
+        }
 
         let runningApplications = regularRunningApplications()
         let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
@@ -573,7 +587,22 @@ final class WindowManager: ObservableObject {
             currentBundleIdentifier: Bundle.main.bundleIdentifier
         )
 
-        trayApps = trayCandidates.compactMap { applicationsByPID[$0.pid] }
+        let nextTrayApps = trayCandidates.compactMap { applicationsByPID[$0.pid] }
+        if !Self.sameRunningApplications(nextTrayApps, trayApps) {
+            trayApps = nextTrayApps
+        }
+    }
+
+    private func boundsByWindowID(for windows: [WindowInfo]) -> [String: CGRect] {
+        Dictionary(
+            uniqueKeysWithValues: windows.compactMap { window in
+                guard let bounds = bounds(for: window) else {
+                    return nil
+                }
+
+                return (window.id, bounds)
+            }
+        )
     }
 
     private func regularRunningApplications() -> [NSRunningApplication] {
@@ -744,6 +773,25 @@ final class WindowManager: ObservableObject {
 
         windowOrder.append(newID)
     }
+
+    private static func sameRunningApplications(
+        _ lhs: [NSRunningApplication],
+        _ rhs: [NSRunningApplication]
+    ) -> Bool {
+        guard lhs.count == rhs.count else {
+            return false
+        }
+
+        return zip(lhs, rhs).allSatisfy { leftApplication, rightApplication in
+            leftApplication.processIdentifier == rightApplication.processIdentifier &&
+                leftApplication.bundleIdentifier == rightApplication.bundleIdentifier
+        }
+    }
+}
+
+private struct PublishedWindowState: Equatable {
+    let windows: [WindowInfo]
+    let boundsByWindowID: [String: CGRect]
 }
 
 struct RunningApplicationCandidate: Equatable {

@@ -10,6 +10,7 @@ final class RunningAppTrayView: NSStackView {
     private let iconsStackView = NSStackView()
     private let collapsedSystemResourceWidgetView: CollapsedSystemResourceWidgetView
     private var cancellables = Set<AnyCancellable>()
+    private var lastContentSignature: ContentSignature?
 
     var preferredWidthDidChange: (() -> Void)?
 
@@ -81,6 +82,13 @@ final class RunningAppTrayView: NSStackView {
             }
             .store(in: &cancellables)
 
+        windowManager.$trayApps
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildIcons()
+            }
+            .store(in: &cancellables)
+
         pinnedAppManager.$pinnedApps
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -132,6 +140,7 @@ final class RunningAppTrayView: NSStackView {
     }
 
     func refresh() {
+        lastContentSignature = nil
         rebuildIcons()
     }
 
@@ -148,12 +157,29 @@ final class RunningAppTrayView: NSStackView {
     }
 
     private func rebuildIcons() {
+        let applications = localTrayApps
+        let showsCollapsedWidget = shouldShowCollapsedSystemResourceWidget
+        let signature = ContentSignature(
+            applications: applications.map {
+                ContentSignature.Application(
+                    pid: $0.processIdentifier,
+                    bundleIdentifier: $0.bundleIdentifier
+                )
+            },
+            showsCollapsedSystemResourceWidget: showsCollapsedWidget
+        )
+        guard signature != lastContentSignature else {
+            return
+        }
+
+        lastContentSignature = signature
+
         iconsStackView.arrangedSubviews.forEach { view in
             iconsStackView.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
 
-        for application in localTrayApps {
+        for application in applications {
             iconsStackView.addArrangedSubview(
                 TrayIconView(
                     application: application,
@@ -162,7 +188,7 @@ final class RunningAppTrayView: NSStackView {
             )
         }
 
-        if shouldShowCollapsedSystemResourceWidget {
+        if showsCollapsedWidget {
             iconsStackView.insertArrangedSubview(collapsedSystemResourceWidgetView, at: 0)
         }
 
@@ -216,4 +242,14 @@ final class RunningAppTrayView: NSStackView {
 
         return max(0, view.fittingSize.width)
     }
+}
+
+private struct ContentSignature: Equatable {
+    struct Application: Equatable {
+        let pid: pid_t
+        let bundleIdentifier: String?
+    }
+
+    let applications: [Application]
+    let showsCollapsedSystemResourceWidget: Bool
 }

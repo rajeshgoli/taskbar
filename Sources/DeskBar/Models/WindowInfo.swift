@@ -1,6 +1,6 @@
 import AppKit
 
-struct WindowInfo: Identifiable {
+struct WindowInfo: Equatable, Identifiable {
     let pid: pid_t
     let cgWindowID: CGWindowID?
     let provisionalID: String?
@@ -42,5 +42,17 @@ struct WindowInfo: Identifiable {
         }
 
         return provisionalID ?? "\(pid)-\(appName)"
+    }
+
+    static func == (lhs: WindowInfo, rhs: WindowInfo) -> Bool {
+        lhs.pid == rhs.pid &&
+            lhs.cgWindowID == rhs.cgWindowID &&
+            lhs.provisionalID == rhs.provisionalID &&
+            lhs.appName == rhs.appName &&
+            lhs.title == rhs.title &&
+            lhs.bundleIdentifier == rhs.bundleIdentifier &&
+            lhs.isMinimized == rhs.isMinimized &&
+            lhs.isHidden == rhs.isHidden &&
+            lhs.isProvisional == rhs.isProvisional
     }
 }

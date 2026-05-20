@@ -151,7 +151,9 @@ final class AppStateMonitor: ObservableObject {
             )
         }
 
-        states = nextStates
+        if nextStates != states {
+            states = nextStates
+        }
     }
 
     private func isLaunching(
