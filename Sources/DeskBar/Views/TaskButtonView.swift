@@ -26,6 +26,7 @@ struct TaskButtonDragConfiguration {
 struct TaskButtonPluginMenuConfiguration {
     let buttonTitle: String
     let tintColor: NSColor
+    let showsActionButton: Bool
     let menuProvider: () -> NSMenu
 }
 
@@ -134,7 +135,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private var showsPluginActionButton: Bool {
-        pluginMenuConfiguration != nil
+        pluginMenuConfiguration?.showsActionButton == true
     }
 
     private var hasPluginMenu: Bool {

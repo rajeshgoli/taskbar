@@ -419,6 +419,14 @@ final class TaskbarContentView: NSView {
             }
             .store(in: &cancellables)
 
+        smPluginService?.$terminalTabCountByWindowID
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildTaskZone()
+                self?.schedulePreferredWidthNotification()
+            }
+            .store(in: &cancellables)
+
         settings.$groupingMode
             .receive(on: RunLoop.main)
             .sink { [weak self] groupingMode in
@@ -676,7 +684,8 @@ final class TaskbarContentView: NSView {
             return baseWindows
         }
 
-        let terminalWindowIDsWithAgentTabs = Set(scopedAgentTabs.map(\.terminalWindowID))
+        let agentTabCountByWindowID = Dictionary(grouping: scopedAgentTabs, by: \.terminalWindowID)
+            .mapValues(\.count)
         let nonAgentWindows = baseWindows.filter { window in
             guard
                 window.bundleIdentifier == SMPluginService.terminalBundleIdentifier
@@ -684,12 +693,14 @@ final class TaskbarContentView: NSView {
                 return true
             }
 
-            if let cgWindowID = window.cgWindowID,
-               terminalWindowIDsWithAgentTabs.contains(cgWindowID) {
-                return false
+            guard
+                let cgWindowID = window.cgWindowID,
+                agentTabCountByWindowID[cgWindowID] != nil
+            else {
+                return true
             }
 
-            return true
+            return terminalWindowHasNonAgentTabs(windowID: cgWindowID)
         }
 
         let virtualAgentWindows = scopedAgentTabs.compactMap { annotation -> WindowInfo? in
@@ -735,6 +746,29 @@ final class TaskbarContentView: NSView {
             abs(lhs.minY - rhs.minY) <= tolerance &&
             abs(lhs.width - rhs.width) <= tolerance &&
             abs(lhs.height - rhs.height) <= tolerance
+    }
+
+    private func terminalWindowHasNonAgentTabs(windowID: CGWindowID) -> Bool {
+        guard let smPluginService else {
+            return false
+        }
+
+        let agentTabCount = smPluginService.agentTabs.filter {
+            $0.terminalWindowID == windowID
+        }.count
+        guard agentTabCount > 0 else {
+            return false
+        }
+
+        guard let terminalTabCount = smPluginService.terminalTabCountByWindowID[windowID] else {
+            return true
+        }
+
+        return terminalTabCount > agentTabCount
+    }
+
+    private func terminalWindowHasSelectedAgentTab(windowID: CGWindowID) -> Bool {
+        smPluginService?.windowAnnotations[windowID] != nil
     }
 
     private func updateTaskbarLayout() {
@@ -886,6 +920,13 @@ final class TaskbarContentView: NSView {
                 },
                 pluginMenuConfigurationProvider: { [weak self] window in
                     self?.smPluginMenuConfiguration(for: window)
+                },
+                windowActiveProvider: { [weak self] window, frontmostPID, frontmostWindowID in
+                    self?.isWindowActive(
+                        window,
+                        frontmostPID: frontmostPID,
+                        frontmostWindowID: frontmostWindowID
+                    ) ?? (window.pid == frontmostPID)
                 },
                 activationHandler: { [weak self] in
                     self?.toggleGroupExpansion(for: group.id)
@@ -1083,6 +1124,13 @@ final class TaskbarContentView: NSView {
         if let annotation = smAnnotation(for: window) {
             return window.pid == frontmostPID &&
                 frontmostWindowID == "\(window.pid)-\(annotation.terminalWindowID)"
+        }
+
+        if window.bundleIdentifier == SMPluginService.terminalBundleIdentifier,
+           let cgWindowID = window.cgWindowID,
+           terminalWindowHasNonAgentTabs(windowID: cgWindowID),
+           terminalWindowHasSelectedAgentTab(windowID: cgWindowID) {
+            return false
         }
 
         if let frontmostWindowID {
@@ -1306,6 +1354,10 @@ final class TaskbarContentView: NSView {
             return nil
         }
 
+        guard !terminalWindowHasNonAgentTabs(windowID: cgWindowID) else {
+            return nil
+        }
+
         return smPluginService?.windowAnnotations[cgWindowID]
     }
 
@@ -1317,7 +1369,6 @@ final class TaskbarContentView: NSView {
         guard
             settings.enableSessionManagerPlugin,
             settings.enableSessionManagerTerminalActions,
-            settings.showSessionManagerActionButton,
             let annotation = smAnnotation(for: window)
         else {
             return nil
@@ -1326,6 +1377,7 @@ final class TaskbarContentView: NSView {
         return TaskButtonPluginMenuConfiguration(
             buttonTitle: "sm",
             tintColor: annotation.activityState.color,
+            showsActionButton: settings.showSessionManagerActionButton,
             menuProvider: { [weak self] in
                 SMPluginAgentMenuFactory.makeMenu(
                     annotation: annotation,
@@ -2223,6 +2275,7 @@ private final class TaskZoneGroupContainerView: NSView {
     private let badgeProvider: (String?) -> Bool
     private let agentAnnotationProvider: (WindowInfo) -> SMAgentWindowAnnotation?
     private let pluginMenuConfigurationProvider: (WindowInfo) -> TaskButtonPluginMenuConfiguration?
+    private let windowActiveProvider: (WindowInfo, pid_t?, String?) -> Bool
     private let windowActivationHandler: (WindowInfo) -> Void
     private let stackView = NSStackView()
     private let headerView: TaskZoneGroupButtonView
@@ -2244,6 +2297,7 @@ private final class TaskZoneGroupContainerView: NSView {
         runtimeStateProvider: @escaping (pid_t) -> AppRuntimeState,
         agentAnnotationProvider: @escaping (WindowInfo) -> SMAgentWindowAnnotation?,
         pluginMenuConfigurationProvider: @escaping (WindowInfo) -> TaskButtonPluginMenuConfiguration?,
+        windowActiveProvider: @escaping (WindowInfo, pid_t?, String?) -> Bool,
         activationHandler: @escaping () -> Void,
         windowActivationHandler: @escaping (WindowInfo) -> Void
     ) {
@@ -2252,6 +2306,7 @@ private final class TaskZoneGroupContainerView: NSView {
         self.badgeProvider = badgeProvider
         self.agentAnnotationProvider = agentAnnotationProvider
         self.pluginMenuConfigurationProvider = pluginMenuConfigurationProvider
+        self.windowActiveProvider = windowActiveProvider
         self.windowActivationHandler = windowActivationHandler
         headerView = TaskZoneGroupButtonView(
             appGroup: group,
@@ -2334,7 +2389,7 @@ private final class TaskZoneGroupContainerView: NSView {
                 if let existingView = childViews[windowID] {
                     existingView.update(
                         windowInfo: window,
-                        isActive: isWindowActive(window, frontmostPID: frontmostPID, frontmostWindowID: frontmostWindowID),
+                        isActive: windowActiveProvider(window, frontmostPID, frontmostWindowID),
                         hasBadge: badgeProvider(window.bundleIdentifier),
                         isAccessibilityAvailable: isAccessibilityAvailable,
                         runtimeState: runtimeStateProvider(window.pid),
@@ -2346,7 +2401,7 @@ private final class TaskZoneGroupContainerView: NSView {
                 } else {
                     let newButtonView = TaskButtonView(
                         windowInfo: window,
-                        isActive: isWindowActive(window, frontmostPID: frontmostPID, frontmostWindowID: frontmostWindowID),
+                        isActive: windowActiveProvider(window, frontmostPID, frontmostWindowID),
                         hasBadge: badgeProvider(window.bundleIdentifier),
                         isAccessibilityAvailable: isAccessibilityAvailable,
                         runtimeState: runtimeStateProvider(window.pid),
@@ -2379,23 +2434,6 @@ private final class TaskZoneGroupContainerView: NSView {
         }
 
         reconcileArrangedSubviews(desiredViews, in: stackView)
-    }
-
-    private func isWindowActive(
-        _ window: WindowInfo,
-        frontmostPID: pid_t?,
-        frontmostWindowID: String?
-    ) -> Bool {
-        if let annotation = agentAnnotationProvider(window) {
-            return window.pid == frontmostPID &&
-                frontmostWindowID == "\(window.pid)-\(annotation.terminalWindowID)"
-        }
-
-        if let frontmostWindowID {
-            return window.id == frontmostWindowID
-        }
-
-        return window.pid == frontmostPID
     }
 }
 

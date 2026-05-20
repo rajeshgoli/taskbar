@@ -138,6 +138,7 @@ struct SMTerminalTabSnapshot: Equatable {
 private struct SMAgentTabFetchSnapshot {
     let annotations: [SMAgentWindowAnnotation]
     let liveSessionIDs: Set<String>
+    let terminalTabCountByWindowID: [CGWindowID: Int]
 }
 
 enum SMPluginAgentMenuAction {
@@ -238,6 +239,7 @@ final class SMPluginService: ObservableObject {
 
     @Published private(set) var windowAnnotations: [CGWindowID: SMAgentWindowAnnotation] = [:]
     @Published private(set) var agentTabs: [SMAgentWindowAnnotation] = []
+    @Published private(set) var terminalTabCountByWindowID: [CGWindowID: Int] = [:]
 
     private let pollInterval: TimeInterval
     private var pollTimer: Timer?
@@ -275,6 +277,7 @@ final class SMPluginService: ObservableObject {
             refreshTask = nil
             windowAnnotations = [:]
             agentTabs = []
+            terminalTabCountByWindowID = [:]
             lastObservedAgentTabAtBySessionID = [:]
         }
     }
@@ -293,6 +296,7 @@ final class SMPluginService: ObservableObject {
         guard isEnabled else {
             windowAnnotations = [:]
             agentTabs = []
+            terminalTabCountByWindowID = [:]
             return
         }
 
@@ -303,6 +307,7 @@ final class SMPluginService: ObservableObject {
         guard Self.isTerminalRunning else {
             windowAnnotations = [:]
             agentTabs = []
+            terminalTabCountByWindowID = [:]
             lastObservedAgentTabAtBySessionID = [:]
             return
         }
@@ -336,6 +341,7 @@ final class SMPluginService: ObservableObject {
     private func applyAgentTabFetchSnapshot(_ snapshot: SMAgentTabFetchSnapshot) {
         let now = Date()
         let liveSessionIDs = snapshot.liveSessionIDs
+        terminalTabCountByWindowID = snapshot.terminalTabCountByWindowID
         let freshAnnotationsBySessionID = Dictionary(
             uniqueKeysWithValues: snapshot.annotations.map { ($0.sessionID, $0) }
         )
@@ -485,7 +491,11 @@ final class SMPluginService: ObservableObject {
         }
 
         guard !sessions.isEmpty else {
-            return SMAgentTabFetchSnapshot(annotations: [], liveSessionIDs: [])
+            return SMAgentTabFetchSnapshot(
+                annotations: [],
+                liveSessionIDs: [],
+                terminalTabCountByWindowID: [:]
+            )
         }
 
         return await Task.detached(priority: .utility) {
@@ -498,6 +508,7 @@ final class SMPluginService: ObservableObject {
                 writeDiagnostic("terminal tabs empty for live sessions=\(sessions.count); preserving previous annotations")
                 return nil
             }
+            let terminalTabCountByWindowID = terminalTabCountByWindowID(from: terminalTabs)
 
             let tmuxSessionNames = Set(sessions.map(\.tmuxSession))
             let listedClients = fetchTmuxClients(for: sessions)
@@ -522,9 +533,21 @@ final class SMPluginService: ObservableObject {
             )
             return SMAgentTabFetchSnapshot(
                 annotations: annotations,
-                liveSessionIDs: Set(sessions.map(\.id))
+                liveSessionIDs: Set(sessions.map(\.id)),
+                terminalTabCountByWindowID: terminalTabCountByWindowID
             )
         }.value
+    }
+
+    private nonisolated static func terminalTabCountByWindowID(
+        from terminalTabs: [SMTerminalTabSnapshot]
+    ) -> [CGWindowID: Int] {
+        var tabCountByWindowID: [CGWindowID: Int] = [:]
+        for terminalTab in terminalTabs {
+            tabCountByWindowID[terminalTab.windowID, default: 0] += 1
+        }
+
+        return tabCountByWindowID
     }
 
     private nonisolated static func fetchSessions() async -> [SMSessionSnapshot]? {
