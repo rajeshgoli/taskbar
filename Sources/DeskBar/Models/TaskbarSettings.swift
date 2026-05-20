@@ -145,6 +145,30 @@ class TaskbarSettings: ObservableObject {
         didSet { defaults.set(appsLauncherShortcut.rawValue, forKey: "appsLauncherShortcut") }
     }
 
+    @Published var enableSessionManagerPlugin: Bool {
+        didSet { defaults.set(enableSessionManagerPlugin, forKey: "enableSessionManagerPlugin") }
+    }
+
+    @Published var showSessionManagerAgentTitles: Bool {
+        didSet { defaults.set(showSessionManagerAgentTitles, forKey: "showSessionManagerAgentTitles") }
+    }
+
+    @Published var showSessionManagerActivityIndicators: Bool {
+        didSet { defaults.set(showSessionManagerActivityIndicators, forKey: "showSessionManagerActivityIndicators") }
+    }
+
+    @Published var animateSessionManagerActivity: Bool {
+        didSet { defaults.set(animateSessionManagerActivity, forKey: "animateSessionManagerActivity") }
+    }
+
+    @Published var enableSessionManagerTerminalActions: Bool {
+        didSet { defaults.set(enableSessionManagerTerminalActions, forKey: "enableSessionManagerTerminalActions") }
+    }
+
+    @Published var showSessionManagerActionButton: Bool {
+        didSet { defaults.set(showSessionManagerActionButton, forKey: "showSessionManagerActionButton") }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         taskbarHeight = defaults.object(forKey: "taskbarHeight") as? CGFloat ?? Self.defaultTaskbarHeight
@@ -184,6 +208,12 @@ class TaskbarSettings: ObservableObject {
         enableWindowSwitcher = defaults.object(forKey: "enableWindowSwitcher") as? Bool ?? true
         enableBareCommandLauncher = defaults.object(forKey: "enableBareCommandLauncher") as? Bool ?? true
         appsLauncherShortcut = AppsLauncherShortcut(rawValue: defaults.string(forKey: "appsLauncherShortcut") ?? "") ?? .controlOptionReturn
+        enableSessionManagerPlugin = defaults.object(forKey: "enableSessionManagerPlugin") as? Bool ?? true
+        showSessionManagerAgentTitles = defaults.object(forKey: "showSessionManagerAgentTitles") as? Bool ?? true
+        showSessionManagerActivityIndicators = defaults.object(forKey: "showSessionManagerActivityIndicators") as? Bool ?? true
+        animateSessionManagerActivity = defaults.object(forKey: "animateSessionManagerActivity") as? Bool ?? true
+        enableSessionManagerTerminalActions = defaults.object(forKey: "enableSessionManagerTerminalActions") as? Bool ?? true
+        showSessionManagerActionButton = defaults.object(forKey: "showSessionManagerActionButton") as? Bool ?? true
     }
 
     func resetAppearanceSlidersToDefaults() {

@@ -54,6 +54,12 @@ final class SettingsView: NSView {
     private let enableWindowSwitcherCheckbox = NSButton(checkboxWithTitle: "Enable Alt-Tab / Option-Tab window switcher", target: nil, action: nil)
     private let enableBareCommandLauncherCheckbox = NSButton(checkboxWithTitle: "Enable Apps launcher shortcut", target: nil, action: nil)
     private let appsLauncherShortcutPopupButton = NSPopUpButton()
+    private let enableSessionManagerPluginCheckbox = NSButton(checkboxWithTitle: "Enable Session Manager plugin", target: nil, action: nil)
+    private let showSessionManagerAgentTitlesCheckbox = NSButton(checkboxWithTitle: "Use SM friendly names for agent tasks", target: nil, action: nil)
+    private let showSessionManagerActivityIndicatorsCheckbox = NSButton(checkboxWithTitle: "Show SM activity indicators", target: nil, action: nil)
+    private let animateSessionManagerActivityCheckbox = NSButton(checkboxWithTitle: "Animate working agents", target: nil, action: nil)
+    private let enableSessionManagerTerminalActionsCheckbox = NSButton(checkboxWithTitle: "Enable Terminal actions", target: nil, action: nil)
+    private let showSessionManagerActionButtonCheckbox = NSButton(checkboxWithTitle: "Show SM action button on agent tasks", target: nil, action: nil)
 
     private let launcherTableView = NSTableView()
     private let launcherScrollView = NSScrollView()
@@ -156,6 +162,17 @@ final class SettingsView: NSView {
             makeCheckboxRow(showSystemResourceGPUMetricCheckbox)
         ])
 
+        let pluginsTab = NSTabViewItem(identifier: "plugins")
+        pluginsTab.label = "Plugins"
+        pluginsTab.view = makeFormView(rows: [
+            makeCheckboxRow(enableSessionManagerPluginCheckbox),
+            makeCheckboxRow(showSessionManagerAgentTitlesCheckbox),
+            makeCheckboxRow(showSessionManagerActivityIndicatorsCheckbox),
+            makeCheckboxRow(animateSessionManagerActivityCheckbox),
+            makeCheckboxRow(enableSessionManagerTerminalActionsCheckbox),
+            makeCheckboxRow(showSessionManagerActionButtonCheckbox)
+        ])
+
         let launcherTab = NSTabViewItem(identifier: "launcher")
         launcherTab.label = "Launcher"
         launcherTab.view = makeLauncherView()
@@ -164,7 +181,7 @@ final class SettingsView: NSView {
         blacklistTab.label = "Blacklist"
         blacklistTab.view = makeBlacklistView()
 
-        [generalTab, appearanceTab, behaviorTab, widgetsTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
+        [generalTab, appearanceTab, behaviorTab, widgetsTab, pluginsTab, launcherTab, blacklistTab].forEach(tabView.addTabViewItem)
     }
 
     private func configureWidgetDisplayPopupButton() {
@@ -330,6 +347,24 @@ final class SettingsView: NSView {
 
         appsLauncherShortcutPopupButton.target = self
         appsLauncherShortcutPopupButton.action = #selector(appsLauncherShortcutChanged(_:))
+
+        enableSessionManagerPluginCheckbox.target = self
+        enableSessionManagerPluginCheckbox.action = #selector(enableSessionManagerPluginChanged(_:))
+
+        showSessionManagerAgentTitlesCheckbox.target = self
+        showSessionManagerAgentTitlesCheckbox.action = #selector(showSessionManagerAgentTitlesChanged(_:))
+
+        showSessionManagerActivityIndicatorsCheckbox.target = self
+        showSessionManagerActivityIndicatorsCheckbox.action = #selector(showSessionManagerActivityIndicatorsChanged(_:))
+
+        animateSessionManagerActivityCheckbox.target = self
+        animateSessionManagerActivityCheckbox.action = #selector(animateSessionManagerActivityChanged(_:))
+
+        enableSessionManagerTerminalActionsCheckbox.target = self
+        enableSessionManagerTerminalActionsCheckbox.action = #selector(enableSessionManagerTerminalActionsChanged(_:))
+
+        showSessionManagerActionButtonCheckbox.target = self
+        showSessionManagerActionButtonCheckbox.action = #selector(showSessionManagerActionButtonChanged(_:))
 
         removePinnedAppButton.target = self
         removePinnedAppButton.action = #selector(removePinnedApp(_:))
@@ -568,6 +603,51 @@ final class SettingsView: NSView {
                 }
 
                 self?.appsLauncherShortcutPopupButton.selectItem(at: index)
+            }
+            .store(in: &cancellables)
+
+        settings.$enableSessionManagerPlugin
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.enableSessionManagerPluginCheckbox.state = value ? .on : .off
+                self?.updateSessionManagerPluginControlsState()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerAgentTitles
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSessionManagerAgentTitlesCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerActivityIndicators
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSessionManagerActivityIndicatorsCheckbox.state = value ? .on : .off
+                self?.updateSessionManagerPluginControlsState()
+            }
+            .store(in: &cancellables)
+
+        settings.$animateSessionManagerActivity
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.animateSessionManagerActivityCheckbox.state = value ? .on : .off
+            }
+            .store(in: &cancellables)
+
+        settings.$enableSessionManagerTerminalActions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.enableSessionManagerTerminalActionsCheckbox.state = value ? .on : .off
+                self?.updateSessionManagerPluginControlsState()
+            }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerActionButton
+            .receive(on: RunLoop.main)
+            .sink { [weak self] value in
+                self?.showSessionManagerActionButtonCheckbox.state = value ? .on : .off
             }
             .store(in: &cancellables)
     }
@@ -851,6 +931,15 @@ final class SettingsView: NSView {
         showSystemResourceMemoryMetricCheckbox.isEnabled = isEnabled
         showSystemResourceCPUMetricCheckbox.isEnabled = isEnabled
         showSystemResourceGPUMetricCheckbox.isEnabled = isEnabled
+    }
+
+    private func updateSessionManagerPluginControlsState() {
+        let isPluginEnabled = settings.enableSessionManagerPlugin
+        showSessionManagerAgentTitlesCheckbox.isEnabled = isPluginEnabled
+        showSessionManagerActivityIndicatorsCheckbox.isEnabled = isPluginEnabled
+        animateSessionManagerActivityCheckbox.isEnabled = isPluginEnabled && settings.showSessionManagerActivityIndicators
+        enableSessionManagerTerminalActionsCheckbox.isEnabled = isPluginEnabled
+        showSessionManagerActionButtonCheckbox.isEnabled = isPluginEnabled && settings.enableSessionManagerTerminalActions
     }
 
     private func updateWidgetDisplayPopupSelection() {
@@ -1176,6 +1265,36 @@ final class SettingsView: NSView {
         default:
             settings.appsLauncherShortcut = .controlOptionReturn
         }
+    }
+
+    @objc
+    private func enableSessionManagerPluginChanged(_ sender: NSButton) {
+        settings.enableSessionManagerPlugin = sender.state == .on
+    }
+
+    @objc
+    private func showSessionManagerAgentTitlesChanged(_ sender: NSButton) {
+        settings.showSessionManagerAgentTitles = sender.state == .on
+    }
+
+    @objc
+    private func showSessionManagerActivityIndicatorsChanged(_ sender: NSButton) {
+        settings.showSessionManagerActivityIndicators = sender.state == .on
+    }
+
+    @objc
+    private func animateSessionManagerActivityChanged(_ sender: NSButton) {
+        settings.animateSessionManagerActivity = sender.state == .on
+    }
+
+    @objc
+    private func enableSessionManagerTerminalActionsChanged(_ sender: NSButton) {
+        settings.enableSessionManagerTerminalActions = sender.state == .on
+    }
+
+    @objc
+    private func showSessionManagerActionButtonChanged(_ sender: NSButton) {
+        settings.showSessionManagerActionButton = sender.state == .on
     }
 
     @objc

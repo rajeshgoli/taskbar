@@ -23,6 +23,12 @@ struct TaskButtonDragConfiguration {
     let acceptDrop: (DeskBarDragPayload, DeskBarDropEdge) -> Bool
 }
 
+struct TaskButtonPluginMenuConfiguration {
+    let buttonTitle: String
+    let tintColor: NSColor
+    let menuProvider: () -> NSMenu
+}
+
 final class TaskButtonView: NSView, NSDraggingSource {
     private static var activeHoverView: TaskButtonView?
     static let dragPasteboardType = NSPasteboard.PasteboardType("com.deskbar.task")
@@ -40,12 +46,15 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private var isAccessibilityAvailable: Bool
     private var runtimeState: AppRuntimeState
     private var showsActivityOverlay: Bool
+    private var agentAnnotation: SMAgentWindowAnnotation?
     private let blacklistManager: BlacklistManager
     private let activationHandler: (WindowInfo) -> Void
+    private var pluginMenuConfiguration: TaskButtonPluginMenuConfiguration?
     private let dragConfiguration: TaskButtonDragConfiguration?
     private var hoverDelay: TimeInterval
     private var maxWidth: CGFloat
     private let accessibilityService: AccessibilityService
+    private let pluginActionButton = TaskButtonPluginActionButton()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let statusIndicatorView = NSView()
@@ -67,6 +76,11 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private var hoverWorkItem: DispatchWorkItem?
     private var thumbnailRequestTask: Task<Void, Never>?
     private var maxWidthConstraint: NSLayoutConstraint?
+    private var statusDefaultLeadingConstraint: NSLayoutConstraint?
+    private var statusSMLeadingConstraint: NSLayoutConstraint?
+    private var iconDefaultLeadingConstraint: NSLayoutConstraint?
+    private var iconSMLeadingConstraint: NSLayoutConstraint?
+    private var titleTrailingConstraint: NSLayoutConstraint?
     private var progressWidthConstraint: NSLayoutConstraint?
     private var dropIndicatorLeadingConstraint: NSLayoutConstraint?
     private var dropIndicatorTrailingConstraint: NSLayoutConstraint?
@@ -103,6 +117,30 @@ final class TaskButtonView: NSView, NSDraggingSource {
         return .normal
     }
 
+    private var effectiveTaskWidth: CGFloat {
+        guard agentAnnotation != nil else {
+            return maxWidth
+        }
+
+        let friendlyName = resolvedTitle().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !friendlyName.isEmpty else {
+            return maxWidth
+        }
+
+        let font = titleLabel.font ?? NSFont.systemFont(ofSize: settings.titleFontSize)
+        let textWidth = (friendlyName as NSString).size(withAttributes: [.font: font]).width
+        let extraWidth: CGFloat = showsPluginActionButton ? 106 : 76
+        return min(max(maxWidth, ceil(textWidth + extraWidth)), 340)
+    }
+
+    private var showsPluginActionButton: Bool {
+        pluginMenuConfiguration != nil
+    }
+
+    private var hasPluginMenu: Bool {
+        pluginMenuConfiguration != nil
+    }
+
     init(
         windowInfo: WindowInfo,
         isActive: Bool,
@@ -110,10 +148,12 @@ final class TaskButtonView: NSView, NSDraggingSource {
         isAccessibilityAvailable: Bool,
         runtimeState: AppRuntimeState,
         showsActivityOverlay: Bool,
+        agentAnnotation: SMAgentWindowAnnotation? = nil,
         settings: TaskbarSettings,
         blacklistManager: BlacklistManager,
         accessibilityService: AccessibilityService = AccessibilityService(),
         dragConfiguration: TaskButtonDragConfiguration? = nil,
+        pluginMenuConfiguration: TaskButtonPluginMenuConfiguration? = nil,
         activationHandler: @escaping (WindowInfo) -> Void
     ) {
         let owningApplication = NSWorkspace.shared.runningApplications.first {
@@ -127,11 +167,13 @@ final class TaskButtonView: NSView, NSDraggingSource {
         self.isAccessibilityAvailable = isAccessibilityAvailable
         self.runtimeState = runtimeState
         self.showsActivityOverlay = showsActivityOverlay
+        self.agentAnnotation = agentAnnotation
         self.blacklistManager = blacklistManager
         self.hoverDelay = settings.hoverDelay
         self.maxWidth = settings.maxTaskWidth
         self.accessibilityService = accessibilityService
         self.dragConfiguration = dragConfiguration
+        self.pluginMenuConfiguration = pluginMenuConfiguration
         self.activationHandler = activationHandler
         self.thumbnailPopover = ThumbnailPopover(settings: settings)
         self.owningApplication = owningApplication
@@ -164,7 +206,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        return NSSize(width: maxWidth, height: 32)
+        return NSSize(width: effectiveTaskWidth, height: 32)
     }
 
     override func layout() {
@@ -274,6 +316,13 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private func setupSubviews() {
+        pluginActionButton.translatesAutoresizingMaskIntoConstraints = false
+        pluginActionButton.contentTintColor = .secondaryLabelColor
+        pluginActionButton.toolTip = "Session Manager actions"
+        pluginActionButton.target = self
+        pluginActionButton.action = #selector(showPluginMenuFromButton(_:))
+        pluginActionButton.isHidden = true
+
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
@@ -321,6 +370,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
         dropIndicatorView.isHidden = true
 
         addSubview(statusIndicatorView)
+        addSubview(pluginActionButton)
         addSubview(iconView)
         addSubview(titleLabel)
         addSubview(activityBadgeView)
@@ -329,30 +379,45 @@ final class TaskButtonView: NSView, NSDraggingSource {
         progressTrackView.addSubview(progressFillView)
         addSubview(dropIndicatorView)
 
-        let maxWidthConstraint = widthAnchor.constraint(equalToConstant: maxWidth)
+        let maxWidthConstraint = widthAnchor.constraint(equalToConstant: effectiveTaskWidth)
         self.maxWidthConstraint = maxWidthConstraint
+        let titleTrailingConstraint = titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
+        self.titleTrailingConstraint = titleTrailingConstraint
         let progressWidthConstraint = progressFillView.widthAnchor.constraint(equalToConstant: 0)
         self.progressWidthConstraint = progressWidthConstraint
         let dropIndicatorLeadingConstraint = dropIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor)
         let dropIndicatorTrailingConstraint = dropIndicatorView.trailingAnchor.constraint(equalTo: trailingAnchor)
+        let statusDefaultLeadingConstraint = statusIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3)
+        let statusSMLeadingConstraint = statusIndicatorView.leadingAnchor.constraint(equalTo: pluginActionButton.trailingAnchor, constant: 3)
+        let iconDefaultLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        let iconSMLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: statusIndicatorView.trailingAnchor, constant: 5)
+        self.statusDefaultLeadingConstraint = statusDefaultLeadingConstraint
+        self.statusSMLeadingConstraint = statusSMLeadingConstraint
+        self.iconDefaultLeadingConstraint = iconDefaultLeadingConstraint
+        self.iconSMLeadingConstraint = iconSMLeadingConstraint
         self.dropIndicatorLeadingConstraint = dropIndicatorLeadingConstraint
         self.dropIndicatorTrailingConstraint = dropIndicatorTrailingConstraint
 
         NSLayoutConstraint.activate([
             maxWidthConstraint,
 
-            statusIndicatorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            statusDefaultLeadingConstraint,
             statusIndicatorView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             statusIndicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             statusIndicatorView.widthAnchor.constraint(equalToConstant: 3),
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            pluginActionButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            pluginActionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pluginActionButton.widthAnchor.constraint(equalToConstant: 20),
+            pluginActionButton.heightAnchor.constraint(equalToConstant: 20),
+
+            iconDefaultLeadingConstraint,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 24),
             iconView.heightAnchor.constraint(equalToConstant: 24),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            titleTrailingConstraint,
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             activityBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
@@ -384,6 +449,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.titleLabel.font = NSFont.systemFont(ofSize: value)
+                self?.maxWidthConstraint?.constant = self?.effectiveTaskWidth ?? value
                 self?.invalidateIntrinsicContentSize()
             }
             .store(in: &cancellables)
@@ -392,7 +458,7 @@ final class TaskButtonView: NSView, NSDraggingSource {
             .receive(on: RunLoop.main)
             .sink { [weak self] value in
                 self?.maxWidth = value
-                self?.maxWidthConstraint?.constant = value
+                self?.maxWidthConstraint?.constant = self?.effectiveTaskWidth ?? value
                 self?.invalidateIntrinsicContentSize()
             }
             .store(in: &cancellables)
@@ -411,9 +477,58 @@ final class TaskButtonView: NSView, NSDraggingSource {
                 self?.hoverDelay = value
             }
             .store(in: &cancellables)
+
+        let updateForSessionManagerSettings: () -> Void = { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.updateAppearance()
+            self.maxWidthConstraint?.constant = self.effectiveTaskWidth
+            self.invalidateIntrinsicContentSize()
+        }
+
+        settings.$enableSessionManagerPlugin
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerAgentTitles
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerActivityIndicators
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
+
+        settings.$animateSessionManagerActivity
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
+
+        settings.$enableSessionManagerTerminalActions
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
+
+        settings.$showSessionManagerActionButton
+            .receive(on: RunLoop.main)
+            .sink { _ in updateForSessionManagerSettings() }
+            .store(in: &cancellables)
     }
 
     private func resolvedTitle() -> String {
+        if settings.enableSessionManagerPlugin,
+           settings.showSessionManagerAgentTitles,
+           let agentAnnotation {
+            let friendlyName = agentAnnotation.friendlyName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !friendlyName.isEmpty {
+                return friendlyName
+            }
+        }
+
         let windowTitle = windowInfo.title
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return windowTitle.isEmpty ? windowInfo.appName : windowTitle
@@ -433,6 +548,30 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private func resolvedToolTip() -> String {
         var lines = [displayTitle()]
 
+        if settings.enableSessionManagerPlugin, let agentAnnotation {
+            lines.append("SM: \(agentAnnotation.activityState.displayName) - \(agentAnnotation.provider) - \(agentAnnotation.sessionStatus)")
+            if let agentStatusText = trimmed(agentAnnotation.agentStatusText) {
+                lines.append(agentStatusText)
+            } else if let currentTask = trimmed(agentAnnotation.currentTask) {
+                lines.append(currentTask)
+            }
+            if let lastActionSummary = trimmed(agentAnnotation.lastActionSummary) {
+                lines.append("Last: \(lastActionSummary)")
+            } else if let lastToolName = trimmed(agentAnnotation.lastToolName) {
+                lines.append("Tool: \(lastToolName)")
+            }
+            if let tokensUsed = agentAnnotation.tokensUsed, tokensUsed > 0 {
+                lines.append("Tokens: \(tokensUsed)")
+            }
+            lines.append(agentAnnotation.workingDirectory)
+            lines.append("Session: \(agentAnnotation.sessionID)")
+
+            let rawTitle = windowInfo.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rawTitle.isEmpty, rawTitle != agentAnnotation.friendlyName {
+                lines.append("Terminal: \(rawTitle)")
+            }
+        }
+
         if runtimeState.isLaunching {
             lines.append("Launching")
         }
@@ -446,6 +585,15 @@ final class TaskButtonView: NSView, NSDraggingSource {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedValue, !trimmedValue.isEmpty else {
+            return nil
+        }
+
+        return trimmedValue
     }
 
     private var shouldShowThumbnailPopover: Bool {
@@ -560,6 +708,8 @@ final class TaskButtonView: NSView, NSDraggingSource {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        addPluginMenuItems(to: menu, includeTrailingSeparator: true)
+
         // Window list section (Dock-style)
         if isAccessibilityAvailable, let app = owningApplication {
             let windows = accessibilityService.enumerateWindows(for: app)
@@ -602,6 +752,30 @@ final class TaskButtonView: NSView, NSDraggingSource {
         return menu
     }
 
+    private func makePluginMenu() -> NSMenu {
+        pluginMenuConfiguration?.menuProvider() ?? NSMenu()
+    }
+
+    private func addPluginMenuItems(to menu: NSMenu, includeTrailingSeparator: Bool) {
+        guard hasPluginMenu else {
+            return
+        }
+
+        let pluginMenu = makePluginMenu()
+        while pluginMenu.numberOfItems > 0 {
+            guard let item = pluginMenu.item(at: 0) else {
+                break
+            }
+
+            pluginMenu.removeItem(item)
+            menu.addItem(item)
+        }
+
+        if includeTrailingSeparator {
+            menu.addItem(.separator())
+        }
+    }
+
     private func makeMenuItem(title: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
@@ -630,11 +804,23 @@ final class TaskButtonView: NSView, NSDraggingSource {
         toolTip = resolvedToolTip()
         iconView.image = displayIcon()
         iconView.alphaValue = iconAlpha()
+        updateTaskButtonPluginActionButton()
         updateStatusIndicator()
         updateActivityBadge()
         updateProgressIndicator()
         updateBackgroundColor()
         invalidateIntrinsicContentSize()
+    }
+
+    private func updateTaskButtonPluginActionButton() {
+        pluginActionButton.isHidden = !showsPluginActionButton
+        statusDefaultLeadingConstraint?.isActive = !showsPluginActionButton
+        statusSMLeadingConstraint?.isActive = showsPluginActionButton
+        iconDefaultLeadingConstraint?.isActive = !showsPluginActionButton
+        iconSMLeadingConstraint?.isActive = showsPluginActionButton
+        pluginActionButton.title = pluginMenuConfiguration?.buttonTitle ?? ""
+        pluginActionButton.contentTintColor = pluginMenuConfiguration?.tintColor ?? .secondaryLabelColor
+        pluginActionButton.activityColor = pluginMenuConfiguration?.tintColor ?? .secondaryLabelColor
     }
 
     func update(
@@ -643,7 +829,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
         hasBadge: Bool,
         isAccessibilityAvailable: Bool,
         runtimeState: AppRuntimeState,
-        showsActivityOverlay: Bool
+        showsActivityOverlay: Bool,
+        agentAnnotation: SMAgentWindowAnnotation? = nil,
+        pluginMenuConfiguration: TaskButtonPluginMenuConfiguration? = nil
     ) {
         let previousThumbnailEligibility = shouldShowThumbnailPopover
         let previousWindowID = self.windowInfo.cgWindowID
@@ -654,6 +842,9 @@ final class TaskButtonView: NSView, NSDraggingSource {
         self.isAccessibilityAvailable = isAccessibilityAvailable
         self.runtimeState = runtimeState
         self.showsActivityOverlay = showsActivityOverlay
+        self.agentAnnotation = agentAnnotation
+        self.pluginMenuConfiguration = pluginMenuConfiguration
+        maxWidthConstraint?.constant = effectiveTaskWidth
 
         if previousWindowID != windowInfo.cgWindowID {
             windowElement = Self.resolveWindowElement(
@@ -697,6 +888,16 @@ final class TaskButtonView: NSView, NSDraggingSource {
     private func showAllWindows(_ sender: Any?) {
         owningApplication?.unhide()
         owningApplication?.activate(options: .activateAllWindows)
+    }
+
+    @objc
+    private func showPluginMenuFromButton(_ sender: Any?) {
+        guard hasPluginMenu else {
+            return
+        }
+
+        let menu = makePluginMenu()
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: pluginActionButton.bounds.maxY + 2), in: pluginActionButton)
     }
 
     @objc
@@ -787,18 +988,29 @@ final class TaskButtonView: NSView, NSDraggingSource {
     }
 
     private func updateStatusIndicator() {
-        let isVisible = runtimeState.needsAttention || runtimeState.isLaunching
+        let hasRuntimeStatus = runtimeState.needsAttention || runtimeState.isLaunching
+        let hasAgentStatus = settings.enableSessionManagerPlugin &&
+            settings.showSessionManagerActivityIndicators &&
+            agentAnnotation != nil
+        let isVisible = hasRuntimeStatus || hasAgentStatus
         statusIndicatorView.isHidden = !isVisible
 
         guard isVisible else {
             statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.agentActivity")
             return
         }
 
-        let color = runtimeState.needsAttention ? NSColor.systemOrange : NSColor.systemBlue
+        let color: NSColor
+        if hasRuntimeStatus {
+            color = runtimeState.needsAttention ? NSColor.systemOrange : NSColor.systemBlue
+        } else {
+            color = agentAnnotation?.activityState.color ?? .secondaryLabelColor
+        }
         statusIndicatorView.layer?.backgroundColor = color.cgColor
 
         if runtimeState.needsAttention {
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.agentActivity")
             if statusIndicatorView.layer?.animation(forKey: "deskbar.attention") == nil {
                 let animation = CABasicAnimation(keyPath: "opacity")
                 animation.fromValue = 1
@@ -808,19 +1020,41 @@ final class TaskButtonView: NSView, NSDraggingSource {
                 animation.repeatCount = .infinity
                 statusIndicatorView.layer?.add(animation, forKey: "deskbar.attention")
             }
+        } else if settings.animateSessionManagerActivity,
+                  agentAnnotation?.activityState == .working {
+            if statusIndicatorView.layer?.animation(forKey: "deskbar.agentActivity") == nil {
+                let animation = CABasicAnimation(keyPath: "opacity")
+                animation.fromValue = 0.35
+                animation.toValue = 1.0
+                animation.duration = 1.35
+                animation.autoreverses = true
+                animation.repeatCount = .infinity
+                statusIndicatorView.layer?.add(animation, forKey: "deskbar.agentActivity")
+            }
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
         } else {
             statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.attention")
+            statusIndicatorView.layer?.removeAnimation(forKey: "deskbar.agentActivity")
         }
     }
 
     private func updateActivityBadge() {
+        if settings.enableSessionManagerPlugin, agentAnnotation != nil {
+            activityBadgeView.isHidden = true
+            titleTrailingConstraint?.constant = -10
+            return
+        }
+
         guard showsActivityOverlay, let activitySummary = runtimeState.activitySummary else {
             activityBadgeView.isHidden = true
+            titleTrailingConstraint?.constant = -10
             return
         }
 
         activityLabel.stringValue = activitySummary
+        activityLabel.textColor = .secondaryLabelColor
         activityBadgeView.isHidden = false
+        titleTrailingConstraint?.constant = -10
     }
 
     private func updateProgressIndicator() {
@@ -992,5 +1226,70 @@ final class TaskButtonView: NSView, NSDraggingSource {
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         updateDropIndicator(nil)
+    }
+}
+
+private final class TaskButtonPluginActionButton: NSButton {
+    var activityColor: NSColor = .secondaryLabelColor {
+        didSet {
+            updateLayerStyle()
+        }
+    }
+
+    private var trackingAreaRef: NSTrackingArea?
+    private var isHovered = false {
+        didSet {
+            updateLayerStyle()
+        }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        title = "sm"
+        isBordered = false
+        bezelStyle = .regularSquare
+        font = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
+        focusRingType = .none
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        updateLayerStyle()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+
+        let trackingAreaRef = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingAreaRef)
+        self.trackingAreaRef = trackingAreaRef
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    private func updateLayerStyle() {
+        layer?.backgroundColor = isHovered
+            ? activityColor.withAlphaComponent(0.18).cgColor
+            : NSColor.white.withAlphaComponent(0.06).cgColor
+        layer?.borderWidth = isHovered ? 1 : 0
+        layer?.borderColor = activityColor.withAlphaComponent(0.45).cgColor
     }
 }
