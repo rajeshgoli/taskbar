@@ -45,6 +45,10 @@ final class ThumbnailPopover: NSPopover, NSPopoverDelegate {
     }
 
     func show(thumbnail: NSImage, relativeTo view: NSView) {
+        guard view.window != nil else {
+            return
+        }
+
         thumbnailViewController.show(thumbnail: thumbnail)
         show(relativeTo: view.bounds, of: view, preferredEdge: popoverEdge)
         installDismissalMonitors()

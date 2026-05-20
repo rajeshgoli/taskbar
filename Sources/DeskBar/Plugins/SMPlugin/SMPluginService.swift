@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 
 enum SMAgentActivityState: String, Codable, Equatable {
@@ -236,6 +237,7 @@ final class SMPluginService: ObservableObject {
     nonisolated static let terminalBundleIdentifier = "com.apple.Terminal"
     private nonisolated static let sessionsURL = URL(string: "http://127.0.0.1:8420/sessions")!
     private nonisolated static let commandTimeout: TimeInterval = 2.0
+    private nonisolated static let refreshStaleTimeout: TimeInterval = 20.0
     private nonisolated static let retireTimeout: TimeInterval = 30.0
     private nonisolated static let staleAnnotationRetention: TimeInterval = 60.0
     private nonisolated static let diagnosticLogURL = URL(fileURLWithPath: "/tmp/deskbar-sm-plugin.log")
@@ -245,8 +247,10 @@ final class SMPluginService: ObservableObject {
     @Published private(set) var terminalTabCountByWindowID: [CGWindowID: Int] = [:]
 
     private let pollInterval: TimeInterval
-    private var pollTimer: Timer?
+    private var pollLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var refreshStartedAt: Date?
+    private var refreshGeneration = 0
     private var isEnabled: Bool
     private var lastObservedAgentTabAtBySessionID: [String: Date] = [:]
     private var renamePopover: NSPopover?
@@ -262,7 +266,7 @@ final class SMPluginService: ObservableObject {
     }
 
     deinit {
-        pollTimer?.invalidate()
+        pollLoopTask?.cancel()
         refreshTask?.cancel()
     }
 
@@ -275,10 +279,12 @@ final class SMPluginService: ObservableObject {
         if isEnabled {
             startPolling()
         } else {
-            pollTimer?.invalidate()
-            pollTimer = nil
+            pollLoopTask?.cancel()
+            pollLoopTask = nil
             refreshTask?.cancel()
             refreshTask = nil
+            refreshStartedAt = nil
+            refreshGeneration += 1
             windowAnnotations = [:]
             agentTabs = []
             terminalTabCountByWindowID = [:]
@@ -287,13 +293,15 @@ final class SMPluginService: ObservableObject {
     }
 
     private func startPolling() {
-        pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        pollLoopTask?.cancel()
+        pollLoopTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
                 self?.refresh()
+
+                let nanoseconds = UInt64(max(self?.pollInterval ?? 0, 0.1) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
             }
         }
-        refresh()
     }
 
     func refresh() {
@@ -304,8 +312,17 @@ final class SMPluginService: ObservableObject {
             return
         }
 
-        guard refreshTask == nil else {
-            return
+        if let refreshTask {
+            let refreshAge = refreshStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            guard refreshAge > Self.refreshStaleTimeout else {
+                return
+            }
+
+            Self.writeDiagnostic("refresh stale after \(String(format: "%.1f", refreshAge))s; starting replacement poll")
+            refreshTask.cancel()
+            self.refreshTask = nil
+            refreshStartedAt = nil
+            refreshGeneration += 1
         }
 
         guard Self.isTerminalRunning else {
@@ -316,6 +333,9 @@ final class SMPluginService: ObservableObject {
             return
         }
 
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        refreshStartedAt = Date()
         refreshTask = Task { [weak self] in
             let snapshot = await Self.fetchAgentTabAnnotations()
 
@@ -324,8 +344,13 @@ final class SMPluginService: ObservableObject {
                     return
                 }
 
+                guard generation == self.refreshGeneration else {
+                    return
+                }
+
                 defer {
                     self.refreshTask = nil
+                    self.refreshStartedAt = nil
                 }
 
                 guard !Task.isCancelled, self.isEnabled else {
@@ -1283,6 +1308,14 @@ final class SMPluginService: ObservableObject {
 
         if process.isRunning {
             process.terminate()
+            let terminationDeadline = Date().addingTimeInterval(0.5)
+            while process.isRunning, Date() < terminationDeadline {
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
             return nil
         }
 
