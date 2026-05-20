@@ -430,19 +430,19 @@ final class SMPluginService: ObservableObject {
 
         renamePopover = popover
         NSApp.activate(ignoringOtherApps: true)
-        if let presentationView, presentationView.window != nil {
-            popover.show(
-                relativeTo: presentationView.bounds,
-                of: presentationView,
-                preferredEdge: .maxY
-            )
-        } else {
-            popover.show(
-                relativeTo: NSRect(x: 0, y: 0, width: 1, height: 1),
-                of: NSApp.mainWindow?.contentView ?? NSView(),
-                preferredEdge: .maxY
-            )
+
+        let hostView = renamePopoverHostView(preferredView: presentationView)
+        guard let hostView else {
+            renamePopover = nil
+            Self.presentRenameFailureAlert(message: "DeskBar could not find a window to present rename.")
+            return
         }
+
+        popover.show(
+            relativeTo: hostView.bounds,
+            of: hostView,
+            preferredEdge: .maxY
+        )
     }
 
     private func submitRename(annotation: SMAgentWindowAnnotation, newName: String) {
@@ -466,6 +466,21 @@ final class SMPluginService: ObservableObject {
                 self?.refresh()
             }
         }
+    }
+
+    private func renamePopoverHostView(preferredView: NSView?) -> NSView? {
+        if let preferredView, preferredView.window != nil {
+            return preferredView
+        }
+
+        if let contentView = NSApp.mainWindow?.contentView, contentView.window != nil {
+            return contentView
+        }
+
+        return NSApp.windows
+            .lazy
+            .compactMap(\.contentView)
+            .first { $0.window != nil }
     }
 
     func retire(annotation: SMAgentWindowAnnotation, closeTerminal: Bool) {
