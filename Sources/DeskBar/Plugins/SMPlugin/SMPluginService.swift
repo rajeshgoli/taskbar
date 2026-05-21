@@ -143,6 +143,7 @@ private struct SMAgentTabFetchSnapshot {
 }
 
 enum SMPluginAgentMenuAction {
+    case copySessionID
     case rename
     case openTerminalLikeThis
     case retire
@@ -186,6 +187,7 @@ enum SMPluginAgentMenuFactory {
         }
         menu.addItem(metadataItem("Dir: \(abbreviatedPath(annotation.workingDirectory))"))
         menu.addItem(.separator())
+        menu.addItem(item("Copy SM ID", .copySessionID, annotation, target, action))
         menu.addItem(item("Rename", .rename, annotation, target, action))
         menu.addItem(item("New Terminal Like This", .openTerminalLikeThis, annotation, target, action))
         menu.addItem(.separator())

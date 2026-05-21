@@ -1395,6 +1395,10 @@ final class TaskbarContentView: NSView {
         }
 
         switch command.action {
+        case .copySessionID:
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(command.annotation.sessionID, forType: .string)
         case .rename:
             smPluginService?.rename(
                 annotation: command.annotation,
