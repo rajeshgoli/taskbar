@@ -242,6 +242,7 @@ final class SMPluginService: ObservableObject {
     private nonisolated static let staleAnnotationRetention: TimeInterval = 60.0
     private nonisolated static let diagnosticLogURL = URL(fileURLWithPath: "/tmp/deskbar-sm-plugin.log")
     private nonisolated static let diagnosticRepeatInterval: TimeInterval = 60.0
+    private nonisolated static let maxDiagnosticThrottleKeys = 128
     private nonisolated static let diagnosticLogLock = NSLock()
     private nonisolated(unsafe) static var diagnosticLastWriteByMessage: [String: Date] = [:]
 
@@ -1435,9 +1436,15 @@ final class SMPluginService: ObservableObject {
         diagnosticLogLock.lock()
         defer { diagnosticLogLock.unlock() }
 
+        pruneDiagnosticThrottleCache(now: now)
         if let previousWrite = diagnosticLastWriteByMessage[message],
            now.timeIntervalSince(previousWrite) < diagnosticRepeatInterval {
             return
+        }
+        if diagnosticLastWriteByMessage.count >= maxDiagnosticThrottleKeys,
+           diagnosticLastWriteByMessage[message] == nil,
+           let oldestEntry = diagnosticLastWriteByMessage.min(by: { $0.value < $1.value }) {
+            diagnosticLastWriteByMessage.removeValue(forKey: oldestEntry.key)
         }
         diagnosticLastWriteByMessage[message] = now
 
@@ -1456,6 +1463,12 @@ final class SMPluginService: ObservableObject {
             try? handle.write(contentsOf: data)
         } else {
             try? data.write(to: diagnosticLogURL)
+        }
+    }
+
+    private nonisolated static func pruneDiagnosticThrottleCache(now: Date) {
+        diagnosticLastWriteByMessage = diagnosticLastWriteByMessage.filter { _, lastWrite in
+            now.timeIntervalSince(lastWrite) < diagnosticRepeatInterval
         }
     }
 }

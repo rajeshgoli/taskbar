@@ -778,13 +778,19 @@ final class WindowManager: ObservableObject {
         _ lhs: [NSRunningApplication],
         _ rhs: [NSRunningApplication]
     ) -> Bool {
-        guard lhs.count == rhs.count else {
-            return false
-        }
+        runningApplicationSignatures(lhs) == runningApplicationSignatures(rhs)
+    }
 
-        return zip(lhs, rhs).allSatisfy { leftApplication, rightApplication in
-            leftApplication.processIdentifier == rightApplication.processIdentifier &&
-                leftApplication.bundleIdentifier == rightApplication.bundleIdentifier
+    private static func runningApplicationSignatures(
+        _ applications: [NSRunningApplication]
+    ) -> [RunningApplicationSignature] {
+        applications.map { application in
+            RunningApplicationSignature(
+                pid: application.processIdentifier,
+                bundleIdentifier: application.bundleIdentifier,
+                localizedName: application.localizedName,
+                iconSignature: ImageMetadataSignature(application.icon)
+            )
         }
     }
 }
@@ -792,6 +798,13 @@ final class WindowManager: ObservableObject {
 private struct PublishedWindowState: Equatable {
     let windows: [WindowInfo]
     let boundsByWindowID: [String: CGRect]
+}
+
+private struct RunningApplicationSignature: Equatable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+    let localizedName: String?
+    let iconSignature: ImageMetadataSignature
 }
 
 struct RunningApplicationCandidate: Equatable {
