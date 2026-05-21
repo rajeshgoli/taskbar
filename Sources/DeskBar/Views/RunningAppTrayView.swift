@@ -163,7 +163,9 @@ final class RunningAppTrayView: NSStackView {
             applications: applications.map {
                 ContentSignature.Application(
                     pid: $0.processIdentifier,
-                    bundleIdentifier: $0.bundleIdentifier
+                    bundleIdentifier: $0.bundleIdentifier,
+                    localizedName: $0.localizedName,
+                    iconSignature: ImageMetadataSignature($0.icon)
                 )
             },
             showsCollapsedSystemResourceWidget: showsCollapsedWidget
@@ -248,6 +250,8 @@ private struct ContentSignature: Equatable {
     struct Application: Equatable {
         let pid: pid_t
         let bundleIdentifier: String?
+        let localizedName: String?
+        let iconSignature: ImageMetadataSignature
     }
 
     let applications: [Application]

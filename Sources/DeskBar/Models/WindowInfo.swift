@@ -11,6 +11,7 @@ struct WindowInfo: Equatable, Identifiable {
     let isMinimized: Bool
     let isHidden: Bool
     let isProvisional: Bool
+    private let iconSignature: ImageMetadataSignature
 
     init(
         pid: pid_t,
@@ -34,6 +35,7 @@ struct WindowInfo: Equatable, Identifiable {
         self.isMinimized = isMinimized
         self.isHidden = isHidden
         self.isProvisional = isProvisional
+        iconSignature = ImageMetadataSignature(icon)
     }
 
     var id: String {
@@ -51,6 +53,7 @@ struct WindowInfo: Equatable, Identifiable {
             lhs.appName == rhs.appName &&
             lhs.title == rhs.title &&
             lhs.bundleIdentifier == rhs.bundleIdentifier &&
+            lhs.iconSignature == rhs.iconSignature &&
             lhs.isMinimized == rhs.isMinimized &&
             lhs.isHidden == rhs.isHidden &&
             lhs.isProvisional == rhs.isProvisional

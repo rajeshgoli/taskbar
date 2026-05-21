@@ -12,7 +12,16 @@ func windowInfoEqualityTracksTaskbarVisibleFields() {
         icon: NSImage(size: NSSize(width: 16, height: 16)),
         bundleIdentifier: "com.example.alpha"
     )
+    let matchingIcon = NSImage(size: NSSize(width: 16, height: 16))
     let second = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Dashboard",
+        icon: matchingIcon,
+        bundleIdentifier: "com.example.alpha"
+    )
+    let changedIcon = WindowInfo(
         pid: 11,
         cgWindowID: 42,
         appName: "Alpha",
@@ -30,6 +39,7 @@ func windowInfoEqualityTracksTaskbarVisibleFields() {
     )
 
     #expect(first == second)
+    #expect(first != changedIcon)
     #expect(first != renamed)
 }
 
