@@ -1,6 +1,6 @@
 import AppKit
 
-struct WindowInfo: Identifiable {
+struct WindowInfo: Equatable, Identifiable {
     let pid: pid_t
     let cgWindowID: CGWindowID?
     let provisionalID: String?
@@ -11,6 +11,7 @@ struct WindowInfo: Identifiable {
     let isMinimized: Bool
     let isHidden: Bool
     let isProvisional: Bool
+    private let iconSignature: ImageMetadataSignature
 
     init(
         pid: pid_t,
@@ -34,6 +35,7 @@ struct WindowInfo: Identifiable {
         self.isMinimized = isMinimized
         self.isHidden = isHidden
         self.isProvisional = isProvisional
+        iconSignature = ImageMetadataSignature(icon)
     }
 
     var id: String {
@@ -42,5 +44,18 @@ struct WindowInfo: Identifiable {
         }
 
         return provisionalID ?? "\(pid)-\(appName)"
+    }
+
+    static func == (lhs: WindowInfo, rhs: WindowInfo) -> Bool {
+        lhs.pid == rhs.pid &&
+            lhs.cgWindowID == rhs.cgWindowID &&
+            lhs.provisionalID == rhs.provisionalID &&
+            lhs.appName == rhs.appName &&
+            lhs.title == rhs.title &&
+            lhs.bundleIdentifier == rhs.bundleIdentifier &&
+            lhs.iconSignature == rhs.iconSignature &&
+            lhs.isMinimized == rhs.isMinimized &&
+            lhs.isHidden == rhs.isHidden &&
+            lhs.isProvisional == rhs.isProvisional
     }
 }

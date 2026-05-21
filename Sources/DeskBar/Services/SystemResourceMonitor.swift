@@ -98,12 +98,11 @@ final class SystemResourceMonitor: ObservableObject {
         }
 
         if result == KERN_SUCCESS {
-            let usedPages =
-                UInt64(stats.active_count) +
-                UInt64(stats.inactive_count) +
-                UInt64(stats.wire_count) +
-                UInt64(stats.compressor_page_count)
-            return min(usedPages * pageSize, totalBytes ?? UInt64.max)
+            return Self.activityMonitorUsedMemoryBytes(
+                stats: stats,
+                pageSize: pageSize,
+                totalBytes: totalBytes
+            )
         }
 
         guard let totalBytes, let freePercent else {
@@ -252,6 +251,26 @@ final class SystemResourceMonitor: ObservableObject {
         default:
             return nil
         }
+    }
+
+    nonisolated static func activityMonitorUsedMemoryBytes(
+        stats: vm_statistics64,
+        pageSize: UInt64,
+        totalBytes: UInt64?
+    ) -> UInt64 {
+        // Match Activity Monitor's "Memory Used": app/internal memory + wired + compressed,
+        // excluding file-backed cache that macOS can reclaim.
+        let usedPages =
+            UInt64(stats.internal_page_count) +
+            UInt64(stats.wire_count) +
+            UInt64(stats.compressor_page_count)
+        let usedBytes = usedPages * pageSize
+
+        guard let totalBytes else {
+            return usedBytes
+        }
+
+        return min(usedBytes, totalBytes)
     }
 }
 

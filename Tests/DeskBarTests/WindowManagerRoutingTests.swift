@@ -3,6 +3,47 @@ import Testing
 @testable import DeskBar
 
 @Test
+func windowInfoEqualityTracksTaskbarVisibleFields() {
+    let first = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Dashboard",
+        icon: NSImage(size: NSSize(width: 16, height: 16)),
+        bundleIdentifier: "com.example.alpha"
+    )
+    let matchingIcon = NSImage(size: NSSize(width: 16, height: 16))
+    let second = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Dashboard",
+        icon: matchingIcon,
+        bundleIdentifier: "com.example.alpha"
+    )
+    let changedIcon = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Dashboard",
+        icon: NSImage(size: NSSize(width: 32, height: 32)),
+        bundleIdentifier: "com.example.alpha"
+    )
+    let renamed = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Reports",
+        icon: nil,
+        bundleIdentifier: "com.example.alpha"
+    )
+
+    #expect(first == second)
+    #expect(first != changedIcon)
+    #expect(first != renamed)
+}
+
+@Test
 func visibleWindowPIDsRequireAtLeastOneVisibleLocalWindow() {
     let windows = [
         WindowInfo(

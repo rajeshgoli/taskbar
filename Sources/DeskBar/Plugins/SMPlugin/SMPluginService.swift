@@ -241,6 +241,10 @@ final class SMPluginService: ObservableObject {
     private nonisolated static let retireTimeout: TimeInterval = 30.0
     private nonisolated static let staleAnnotationRetention: TimeInterval = 60.0
     private nonisolated static let diagnosticLogURL = URL(fileURLWithPath: "/tmp/deskbar-sm-plugin.log")
+    private nonisolated static let diagnosticRepeatInterval: TimeInterval = 60.0
+    private nonisolated static let maxDiagnosticThrottleKeys = 128
+    private nonisolated static let diagnosticLogLock = NSLock()
+    private nonisolated(unsafe) static var diagnosticLastWriteByMessage: [String: Date] = [:]
 
     @Published private(set) var windowAnnotations: [CGWindowID: SMAgentWindowAnnotation] = [:]
     @Published private(set) var agentTabs: [SMAgentWindowAnnotation] = []
@@ -370,7 +374,9 @@ final class SMPluginService: ObservableObject {
     private func applyAgentTabFetchSnapshot(_ snapshot: SMAgentTabFetchSnapshot) {
         let now = Date()
         let liveSessionIDs = snapshot.liveSessionIDs
-        terminalTabCountByWindowID = snapshot.terminalTabCountByWindowID
+        if terminalTabCountByWindowID != snapshot.terminalTabCountByWindowID {
+            terminalTabCountByWindowID = snapshot.terminalTabCountByWindowID
+        }
         let freshAnnotationsBySessionID = Dictionary(
             uniqueKeysWithValues: snapshot.annotations.map { ($0.sessionID, $0) }
         )
@@ -407,8 +413,14 @@ final class SMPluginService: ObservableObject {
         }
 
         let mergedAnnotations = Self.sortedAnnotations(Array(mergedAnnotationsBySessionID.values))
-        agentTabs = mergedAnnotations
-        windowAnnotations = Self.selectedWindowAnnotations(from: mergedAnnotations)
+        if agentTabs != mergedAnnotations {
+            agentTabs = mergedAnnotations
+        }
+
+        let selectedWindowAnnotations = Self.selectedWindowAnnotations(from: mergedAnnotations)
+        if windowAnnotations != selectedWindowAnnotations {
+            windowAnnotations = selectedWindowAnnotations
+        }
     }
 
     func activate(annotation: SMAgentWindowAnnotation) {
@@ -931,7 +943,7 @@ final class SMPluginService: ObservableObject {
         return renderedRows
         """
 
-        guard let output = runCommand("/usr/bin/osascript", arguments: ["-e", script]) else {
+        guard let output = runCommand("/usr/bin/osascript", arguments: ["-e", script], timeout: 5.0) else {
             return nil
         }
 
@@ -1286,27 +1298,85 @@ final class SMPluginService: ObservableObject {
         arguments: [String],
         timeout: TimeInterval = commandTimeout
     ) -> String? {
+        autoreleasepool {
+            let result = runCommandResult(
+                executable,
+                arguments: arguments,
+                timeout: timeout
+            )
+
+            guard !result.didTimeOut, result.terminationStatus == 0 else {
+                writeCommandFailureDiagnostic(
+                    executable: executable,
+                    result: result
+                )
+                return nil
+            }
+
+            return String(data: result.stdout, encoding: .utf8)
+        }
+    }
+
+    private nonisolated static func runCommandResult(
+        _ executable: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) -> SMCommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
 
         let stdout = Pipe()
         let stderr = Pipe()
+        let stdoutBuffer = SMCommandOutputBuffer()
+        let stderrBuffer = SMCommandOutputBuffer()
+
         process.standardOutput = stdout
         process.standardError = stderr
+
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty {
+                stdoutBuffer.append(data)
+            }
+        }
+        stderr.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty {
+                stderrBuffer.append(data)
+            }
+        }
+
+        defer {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            try? stdout.fileHandleForReading.close()
+            try? stdout.fileHandleForWriting.close()
+            try? stderr.fileHandleForReading.close()
+            try? stderr.fileHandleForWriting.close()
+        }
 
         do {
             try process.run()
         } catch {
-            return nil
+            return SMCommandResult(
+                stdout: stdoutBuffer.data(),
+                stderr: Data(error.localizedDescription.utf8),
+                terminationStatus: nil,
+                didTimeOut: false
+            )
         }
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
 
+        var didTimeOut = false
         let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.02)
         }
 
         if process.isRunning {
+            didTimeOut = true
             process.terminate()
             let terminationDeadline = Date().addingTimeInterval(0.5)
             while process.isRunning, Date() < terminationDeadline {
@@ -1314,22 +1384,72 @@ final class SMPluginService: ObservableObject {
             }
             if process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                process.waitUntilExit()
             }
-            return nil
         }
 
-        guard process.terminationStatus == 0 else {
-            return nil
+        process.waitUntilExit()
+        stdout.fileHandleForReading.readabilityHandler = nil
+        stderr.fileHandleForReading.readabilityHandler = nil
+        drainRemainingData(from: stdout.fileHandleForReading, into: stdoutBuffer)
+        drainRemainingData(from: stderr.fileHandleForReading, into: stderrBuffer)
+
+        return SMCommandResult(
+            stdout: stdoutBuffer.data(),
+            stderr: stderrBuffer.data(),
+            terminationStatus: process.terminationStatus,
+            didTimeOut: didTimeOut
+        )
+    }
+
+    private nonisolated static func drainRemainingData(
+        from fileHandle: FileHandle,
+        into buffer: SMCommandOutputBuffer
+    ) {
+        let data = fileHandle.readDataToEndOfFile()
+        if !data.isEmpty {
+            buffer.append(data)
+        }
+    }
+
+    private nonisolated static func writeCommandFailureDiagnostic(
+        executable: String,
+        result: SMCommandResult
+    ) {
+        guard executable == "/usr/bin/osascript" || executable.hasSuffix("/tmux") else {
+            return
         }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
+        let status = result.didTimeOut
+            ? "timed out"
+            : "status \(result.terminationStatus.map(String.init) ?? "unknown")"
+        let stderr = String(data: result.stderr, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stderr, !stderr.isEmpty {
+            writeDiagnostic("\((executable as NSString).lastPathComponent) \(status): \(stderr)")
+        } else {
+            writeDiagnostic("\((executable as NSString).lastPathComponent) \(status)")
+        }
     }
 
     private nonisolated static func writeDiagnostic(_ message: String) {
+        let now = Date()
+        diagnosticLogLock.lock()
+        defer { diagnosticLogLock.unlock() }
+
+        pruneDiagnosticThrottleCache(now: now)
+        if let previousWrite = diagnosticLastWriteByMessage[message],
+           now.timeIntervalSince(previousWrite) < diagnosticRepeatInterval {
+            return
+        }
+        if diagnosticLastWriteByMessage.count >= maxDiagnosticThrottleKeys,
+           diagnosticLastWriteByMessage[message] == nil,
+           let oldestEntry = diagnosticLastWriteByMessage.min(by: { $0.value < $1.value }) {
+            diagnosticLastWriteByMessage.removeValue(forKey: oldestEntry.key)
+        }
+        diagnosticLastWriteByMessage[message] = now
+
         let formatter = ISO8601DateFormatter()
-        let line = "\(formatter.string(from: Date())) \(message)\n"
+        let line = "\(formatter.string(from: now)) \(message)\n"
         guard let data = line.data(using: .utf8) else {
             return
         }
@@ -1344,6 +1464,36 @@ final class SMPluginService: ObservableObject {
         } else {
             try? data.write(to: diagnosticLogURL)
         }
+    }
+
+    private nonisolated static func pruneDiagnosticThrottleCache(now: Date) {
+        diagnosticLastWriteByMessage = diagnosticLastWriteByMessage.filter { _, lastWrite in
+            now.timeIntervalSince(lastWrite) < diagnosticRepeatInterval
+        }
+    }
+}
+
+private struct SMCommandResult {
+    let stdout: Data
+    let stderr: Data
+    let terminationStatus: Int32?
+    let didTimeOut: Bool
+}
+
+private final class SMCommandOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = Data()
+
+    func append(_ data: Data) {
+        lock.lock()
+        storage.append(data)
+        lock.unlock()
+    }
+
+    func data() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 }
 
