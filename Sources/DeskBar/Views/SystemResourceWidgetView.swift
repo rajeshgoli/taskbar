@@ -731,11 +731,7 @@ private final class SystemResourceMetricControl: NSControl {
 
         let nextWidth = trackView.bounds.width * CGFloat(fraction ?? 0)
         if abs(fillWidthConstraint.constant - nextWidth) > 0.5 {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                fillWidthConstraint.animator().constant = nextWidth
-            }
+            fillWidthConstraint.constant = nextWidth
         }
     }
 }
