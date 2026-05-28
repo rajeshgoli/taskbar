@@ -88,6 +88,14 @@ struct ScreenGeometry {
 
     static func owningDisplayBounds(for windowBounds: CGRect, among displayBoundsCandidates: [CGRect]) -> CGRect? {
         if let originMatch = displayBoundsCandidates.first(where: { $0.contains(windowBounds.origin) }) {
+            if let borderBleedMatch = displayBoundsCandidates.first(where: { displayBounds in
+                displayBounds != originMatch &&
+                    displayBounds.insetBy(dx: -frameBorderTolerance, dy: -frameBorderTolerance).contains(windowBounds.origin) &&
+                    displayBounds.contains(CGPoint(x: windowBounds.midX, y: windowBounds.midY))
+            }) {
+                return borderBleedMatch
+            }
+
             return originMatch
         }
 

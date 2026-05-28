@@ -27,10 +27,24 @@ func windowBelongsToDisplayWhenMidpointFallsOffscreen() {
 }
 
 @Test
-func windowRoutesToOriginDisplayWhenMidpointFallsOnAdjacentDisplay() {
+func windowRoutesToMidpointDisplayWhenOriginOnlyBorderBleedsIntoAdjacentDisplay() {
+    let leftDisplayBounds = CGRect(x: -3440, y: 0, width: 3440, height: 1440)
+    let rightDisplayBounds = CGRect(x: 0, y: 0, width: 3440, height: 1440)
+    let windowBounds = CGRect(x: -1, y: 30, width: 1720, height: 1410)
+
+    let owningDisplayBounds = ScreenGeometry.owningDisplayBounds(
+        for: windowBounds,
+        among: [leftDisplayBounds, rightDisplayBounds]
+    )
+
+    #expect(owningDisplayBounds == rightDisplayBounds)
+}
+
+@Test
+func windowRoutesToOriginDisplayWhenOriginIsMateriallyInsideAdjacentDisplay() {
     let leftDisplayBounds = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
     let rightDisplayBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-    let windowBounds = CGRect(x: -1, y: 40, width: 100, height: 700)
+    let windowBounds = CGRect(x: -20, y: 40, width: 100, height: 700)
 
     let owningDisplayBounds = ScreenGeometry.owningDisplayBounds(
         for: windowBounds,
