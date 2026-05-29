@@ -2,13 +2,13 @@ import AppKit
 import ApplicationServices
 
 final class TrayIconView: NSView {
-    private let application: NSRunningApplication
+    private let application: TrayApplicationInfo
     private let pinnedAppManager: PinnedAppManager
     private let accessibilityService: AccessibilityService
     private let iconView = NSImageView()
 
     init(
-        application: NSRunningApplication,
+        application: TrayApplicationInfo,
         pinnedAppManager: PinnedAppManager,
         accessibilityService: AccessibilityService = AccessibilityService()
     ) {
@@ -18,7 +18,10 @@ final class TrayIconView: NSView {
         super.init(frame: .zero)
 
         translatesAutoresizingMaskIntoConstraints = false
-        toolTip = application.localizedName ?? application.bundleIdentifier ?? "Unknown"
+        toolTip = application.name
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(application.name)
 
         configureSubviews()
     }
@@ -84,28 +87,44 @@ final class TrayIconView: NSView {
 
     private func activateOrReopenApplication(shouldReopen: Bool) {
         guard let bundleIdentifier = application.bundleIdentifier else {
-            application.unhide()
-            application.activate(options: .activateAllWindows)
+            application.runningApplication?.unhide()
+            application.runningApplication?.activate(options: .activateAllWindows)
             return
         }
 
-        LauncherApplicationActivator.activate(
-            application,
-            bundleIdentifier: bundleIdentifier,
-            applicationURL: application.bundleURL,
-            shouldReopen: shouldReopen
-        )
+        if let runningApplication = application.runningApplication {
+            LauncherApplicationActivator.activate(
+                runningApplication,
+                bundleIdentifier: bundleIdentifier,
+                applicationURL: application.bundleURL,
+                shouldReopen: shouldReopen
+            )
+        } else if shouldReopen {
+            LauncherApplicationActivator.reopen(
+                bundleIdentifier: bundleIdentifier,
+                applicationURL: application.bundleURL
+            )
+        } else {
+            LauncherApplicationActivator.launch(
+                bundleIdentifier: bundleIdentifier,
+                applicationURL: application.bundleURL
+            )
+        }
     }
 
     private func hasAnyApplicationWindows() -> Bool? {
+        guard let runningApplication = application.runningApplication else {
+            return nil
+        }
+
         if AXIsProcessTrusted() {
-            let windows = accessibilityService.enumerateWindows(for: application)
+            let windows = accessibilityService.enumerateWindows(for: runningApplication)
             if !windows.isEmpty {
                 return true
             }
         }
 
-        return LauncherApplicationActivator.hasCGWindows(for: application)
+        return LauncherApplicationActivator.hasCGWindows(for: runningApplication)
     }
 
     private func makeContextMenu() -> NSMenu {
@@ -114,10 +133,12 @@ final class TrayIconView: NSView {
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication(_:)), keyEquivalent: "")
         quitItem.target = self
+        quitItem.isEnabled = application.runningApplication != nil
         menu.addItem(quitItem)
 
         let hideItem = NSMenuItem(title: "Hide", action: #selector(hideApplication(_:)), keyEquivalent: "")
         hideItem.target = self
+        hideItem.isEnabled = application.runningApplication != nil
         menu.addItem(hideItem)
 
         let pinItem = NSMenuItem(title: "Pin to Launcher", action: #selector(pinToLauncher(_:)), keyEquivalent: "")
@@ -134,12 +155,12 @@ final class TrayIconView: NSView {
 
     @objc
     private func quitApplication(_ sender: Any?) {
-        application.terminate()
+        application.runningApplication?.terminate()
     }
 
     @objc
     private func hideApplication(_ sender: Any?) {
-        application.hide()
+        application.runningApplication?.hide()
     }
 
     @objc
@@ -150,7 +171,7 @@ final class TrayIconView: NSView {
 
         pinnedAppManager.pin(
             bundleIdentifier: bundleIdentifier,
-            name: application.localizedName ?? bundleIdentifier
+            name: application.name
         )
     }
 }

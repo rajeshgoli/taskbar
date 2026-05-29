@@ -113,6 +113,104 @@ func trayApplicationCandidatesRespectZoneRoutingAndAlphabeticalOrder() {
 }
 
 @Test
+func trayApplicationCandidatesHideAppsWithVisibleBundleSiblings() {
+    let candidates = [
+        RunningApplicationCandidate(pid: 11, bundleIdentifier: "com.valvesoftware.steam", name: "Steam"),
+        RunningApplicationCandidate(pid: 22, bundleIdentifier: "com.example.notes", name: "Notes")
+    ]
+
+    let result = WindowManager.trayApplicationCandidates(
+        from: candidates,
+        visibleWindowPIDs: [],
+        visibleWindowBundleIdentifiers: Set(["com.valvesoftware.steam"]),
+        pinnedBundleIdentifiers: [],
+        blacklistedBundleIdentifiers: [],
+        currentBundleIdentifier: "com.deskbar.app"
+    )
+
+    #expect(result.map(\.bundleIdentifier) == ["com.example.notes"])
+}
+
+@Test
+func trayApplicationCandidatesDeduplicateByBundleIdentifier() {
+    let candidates = [
+        RunningApplicationCandidate(pid: 11, bundleIdentifier: "com.valvesoftware.steam", name: "Steam"),
+        RunningApplicationCandidate(pid: 22, bundleIdentifier: "com.valvesoftware.steam", name: "Steam Helper"),
+        RunningApplicationCandidate(pid: 33, bundleIdentifier: nil, name: "Script")
+    ]
+
+    let result = WindowManager.trayApplicationCandidates(
+        from: candidates,
+        visibleWindowPIDs: [],
+        pinnedBundleIdentifiers: [],
+        blacklistedBundleIdentifiers: [],
+        currentBundleIdentifier: "com.deskbar.app"
+    )
+
+    #expect(result.count == 2)
+    #expect(result.map(\.bundleIdentifier).contains("com.valvesoftware.steam"))
+    #expect(result.map(\.name).contains("Script"))
+}
+
+@Test
+func preferredDisplayBundleUsesContainingAppForUIElementHelper() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("DeskBarTests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let steamBundleURL = rootURL.appendingPathComponent("Steam", isDirectory: true)
+    let helperBundleURL = steamBundleURL
+        .appendingPathComponent("Contents/Frameworks/Steam Helper.app", isDirectory: true)
+    let helperExecutableURL = helperBundleURL
+        .appendingPathComponent("Contents/MacOS/Steam Helper")
+
+    try writeApplicationBundleInfo(
+        at: steamBundleURL,
+        name: "Steam",
+        bundleIdentifier: "com.valvesoftware.steam"
+    )
+    try writeApplicationBundleInfo(
+        at: helperBundleURL,
+        name: "Steam Helper",
+        bundleIdentifier: "com.valvesoftware.steam.helper",
+        isUIElement: true
+    )
+    try FileManager.default.createDirectory(
+        at: helperExecutableURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+
+    let result = WindowManager.preferredDisplayBundleURL(
+        containingExecutableAt: helperExecutableURL.path
+    )
+
+    #expect(result?.standardizedFileURL == steamBundleURL.standardizedFileURL)
+}
+
+@Test
+func preferredDisplayBundleUsesNearestRegularAppBundle() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("DeskBarTests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let gameBundleURL = rootURL.appendingPathComponent("Age Of Empires II.app", isDirectory: true)
+    let executableURL = gameBundleURL.appendingPathComponent("Contents/MacOS/Age Of Empires II")
+    try writeApplicationBundleInfo(
+        at: gameBundleURL,
+        name: "Age Of Empires II",
+        bundleIdentifier: "com.feralinteractive.ageofempires2"
+    )
+    try FileManager.default.createDirectory(
+        at: executableURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+
+    let result = WindowManager.preferredDisplayBundleURL(containingExecutableAt: executableURL.path)
+
+    #expect(result?.standardizedFileURL == gameBundleURL.standardizedFileURL)
+}
+
+@Test
 func stableWindowOrderKeepsExistingPositionsAndAppendsNewWindowsToTheEnd() {
     let result = WindowManager.reconcileStableWindowOrder(
         previousOrder: ["window:alpha", "window:beta", "window:gamma"],
@@ -130,4 +228,30 @@ func stableWindowOrderDeduplicatesCurrentRefreshIDs() {
     )
 
     #expect(result == ["window:alpha", "window:beta"])
+}
+
+private func writeApplicationBundleInfo(
+    at bundleURL: URL,
+    name: String,
+    bundleIdentifier: String,
+    isUIElement: Bool = false
+) throws {
+    let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
+    try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+
+    var info: [String: Any] = [
+        "CFBundleName": name,
+        "CFBundleIdentifier": bundleIdentifier,
+        "CFBundlePackageType": "APPL"
+    ]
+    if isUIElement {
+        info["LSUIElement"] = "1"
+    }
+
+    let plistData = try PropertyListSerialization.data(
+        fromPropertyList: info,
+        format: .xml,
+        options: 0
+    )
+    try plistData.write(to: contentsURL.appendingPathComponent("Info.plist"))
 }

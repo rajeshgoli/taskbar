@@ -162,9 +162,9 @@ final class RunningAppTrayView: NSStackView {
         let signature = ContentSignature(
             applications: applications.map {
                 ContentSignature.Application(
-                    pid: $0.processIdentifier,
+                    pid: $0.pid,
                     bundleIdentifier: $0.bundleIdentifier,
-                    localizedName: $0.localizedName,
+                    localizedName: $0.name,
                     iconSignature: ImageMetadataSignature($0.icon)
                 )
             },
@@ -198,7 +198,7 @@ final class RunningAppTrayView: NSStackView {
         preferredWidthDidChange?()
     }
 
-    private var localTrayApps: [NSRunningApplication] {
+    private var localTrayApps: [TrayApplicationInfo] {
         guard let screen = ScreenGeometry.screen(for: displayID) else {
             return []
         }
