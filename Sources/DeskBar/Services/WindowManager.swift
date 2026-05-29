@@ -73,11 +73,16 @@ final class WindowManager: ObservableObject {
     }
 
     func refresh() {
-        let regularApplications = NSWorkspace.shared.runningApplications.filter {
+        let runningApplications = NSWorkspace.shared.runningApplications
+        let allApplicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let regularApplications = runningApplications.filter {
             $0.activationPolicy == .regular && !isBlacklisted(bundleIdentifier: $0.bundleIdentifier)
         }
         let applicationsByPID = Dictionary(uniqueKeysWithValues: regularApplications.map { ($0.processIdentifier, $0) })
-        let cgSnapshots = fetchCGWindowSnapshots(applicationsByPID: applicationsByPID)
+        let cgSnapshots = fetchCGWindowSnapshots(
+            applicationsByPID: applicationsByPID,
+            allApplicationsByPID: allApplicationsByPID
+        )
         var currentWindowOrder: [String] = []
         var seenWindowIDs = Set<String>()
 
@@ -321,7 +326,10 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    private func fetchCGWindowSnapshots(applicationsByPID: [pid_t: NSRunningApplication]) -> [CGWindowSnapshot] {
+    private func fetchCGWindowSnapshots(
+        applicationsByPID: [pid_t: NSRunningApplication],
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> [CGWindowSnapshot] {
         guard
             let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else {
@@ -354,7 +362,8 @@ final class WindowManager: ObservableObject {
             guard let applicationInfo = cgWindowApplicationInfo(
                 pid: pid,
                 ownerName: ownerName,
-                applicationsByPID: applicationsByPID
+                applicationsByPID: applicationsByPID,
+                allApplicationsByPID: allApplicationsByPID
             ) else {
                 return nil
             }
@@ -378,7 +387,8 @@ final class WindowManager: ObservableObject {
     private func cgWindowApplicationInfo(
         pid: pid_t,
         ownerName: String,
-        applicationsByPID: [pid_t: NSRunningApplication]
+        applicationsByPID: [pid_t: NSRunningApplication],
+        allApplicationsByPID: [pid_t: NSRunningApplication]
     ) -> CGWindowApplicationInfo? {
         if let application = applicationsByPID[pid] {
             guard !isBlacklisted(bundleIdentifier: application.bundleIdentifier) else {
@@ -396,7 +406,12 @@ final class WindowManager: ObservableObject {
         }
 
         guard let inferredInfo = Self.inferredApplicationInfo(pid: pid, ownerName: ownerName),
-              !isBlacklisted(bundleIdentifier: inferredInfo.bundleIdentifier)
+              !isBlacklisted(bundleIdentifier: inferredInfo.bundleIdentifier),
+              Self.shouldUseInferredApplicationInfo(
+                  inferredInfo,
+                  for: pid,
+                  allApplicationsByPID: allApplicationsByPID
+              )
         else {
             return nil
         }
@@ -704,6 +719,41 @@ final class WindowManager: ObservableObject {
         )
     }
 
+    private static func shouldUseInferredApplicationInfo(
+        _ inferredInfo: CGWindowApplicationInfo,
+        for pid: pid_t,
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> Bool {
+        guard let knownApplication = allApplicationsByPID[pid] else {
+            return true
+        }
+
+        guard knownApplication.activationPolicy != .regular else {
+            return true
+        }
+
+        return knownNonregularApplicationCanUseInferredBundle(
+            knownApplicationBundleURL: knownApplication.bundleURL,
+            inferredBundleURL: inferredInfo.bundleURL
+        )
+    }
+
+    static func knownNonregularApplicationCanUseInferredBundle(
+        knownApplicationBundleURL: URL?,
+        inferredBundleURL: URL?
+    ) -> Bool {
+        guard
+            let knownApplicationBundleURL,
+            let inferredBundleURL
+        else {
+            return false
+        }
+
+        let knownPath = knownApplicationBundleURL.standardizedFileURL.path
+        let inferredPath = inferredBundleURL.standardizedFileURL.path
+        return knownPath != inferredPath && knownPath.hasPrefix(inferredPath + "/")
+    }
+
     static func preferredDisplayBundleURL(containingExecutableAt executablePath: String) -> URL? {
         let candidates = applicationBundleURLs(containingExecutableAt: executablePath)
         guard let nearestBundleURL = candidates.first else {
@@ -867,9 +917,16 @@ final class WindowManager: ObservableObject {
     }
 
     private func trayApplicationInfoByCandidateKey() -> [String: TrayApplicationInfo] {
-        let regularInfos = regularRunningApplications().map(TrayApplicationInfo.init(application:))
+        let runningApplications = NSWorkspace.shared.runningApplications
+        let allApplicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let regularInfos = runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .map(TrayApplicationInfo.init(application:))
         let regularPIDs = Set(regularInfos.map(\.pid))
-        let inferredInfos = inferredTrayApplicationInfos(excludingPIDs: regularPIDs)
+        let inferredInfos = inferredTrayApplicationInfos(
+            excludingPIDs: regularPIDs,
+            allApplicationsByPID: allApplicationsByPID
+        )
 
         return (regularInfos + inferredInfos).reduce(into: [:]) { result, info in
             let key = Self.trayCandidateKey(pid: info.pid, bundleIdentifier: info.bundleIdentifier)
@@ -881,7 +938,10 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    private func inferredTrayApplicationInfos(excludingPIDs excludedPIDs: Set<pid_t>) -> [TrayApplicationInfo] {
+    private func inferredTrayApplicationInfos(
+        excludingPIDs excludedPIDs: Set<pid_t>,
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> [TrayApplicationInfo] {
         guard
             let windowList = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else {
@@ -904,7 +964,12 @@ final class WindowManager: ObservableObject {
                     pid: pid,
                     ownerName: (entry[kCGWindowOwnerName as String] as? String) ?? ""
                 ),
-                !isBlacklisted(bundleIdentifier: info.bundleIdentifier)
+                !isBlacklisted(bundleIdentifier: info.bundleIdentifier),
+                Self.shouldUseInferredApplicationInfo(
+                    info,
+                    for: pid,
+                    allApplicationsByPID: allApplicationsByPID
+                )
             else {
                 continue
             }

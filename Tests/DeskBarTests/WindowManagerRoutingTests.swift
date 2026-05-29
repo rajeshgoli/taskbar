@@ -253,6 +253,26 @@ func preferredDisplayBundleUsesNestedAppWhenUIElementIsFalse() throws {
 }
 
 @Test
+func knownNonregularApplicationInferenceRequiresContainingBundle() {
+    let parentURL = URL(fileURLWithPath: "/Applications/Parent.app")
+    let nestedURL = parentURL.appendingPathComponent("Contents/Frameworks/Helper.app")
+    let standaloneURL = URL(fileURLWithPath: "/Applications/Menu Agent.app")
+
+    #expect(WindowManager.knownNonregularApplicationCanUseInferredBundle(
+        knownApplicationBundleURL: nestedURL,
+        inferredBundleURL: parentURL
+    ))
+    #expect(!WindowManager.knownNonregularApplicationCanUseInferredBundle(
+        knownApplicationBundleURL: standaloneURL,
+        inferredBundleURL: standaloneURL
+    ))
+    #expect(!WindowManager.knownNonregularApplicationCanUseInferredBundle(
+        knownApplicationBundleURL: nil,
+        inferredBundleURL: parentURL
+    ))
+}
+
+@Test
 func stableWindowOrderKeepsExistingPositionsAndAppendsNewWindowsToTheEnd() {
     let result = WindowManager.reconcileStableWindowOrder(
         previousOrder: ["window:alpha", "window:beta", "window:gamma"],
