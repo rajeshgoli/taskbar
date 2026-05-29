@@ -804,9 +804,8 @@ final class WindowManager: ObservableObject {
             return false
         }
 
-        if let lsUIElement = bundle.object(forInfoDictionaryKey: "LSUIElement"),
-           isTruthyInfoPlistValue(lsUIElement) {
-            return true
+        if let lsUIElement = bundle.object(forInfoDictionaryKey: "LSUIElement") {
+            return isTruthyInfoPlistValue(lsUIElement)
         }
 
         let bundleName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ??

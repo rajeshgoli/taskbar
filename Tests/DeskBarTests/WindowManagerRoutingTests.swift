@@ -228,8 +228,8 @@ func preferredDisplayBundleUsesNestedAppWhenUIElementIsFalse() throws {
 
     let parentBundleURL = rootURL.appendingPathComponent("Parent.app", isDirectory: true)
     let nestedBundleURL = parentBundleURL
-        .appendingPathComponent("Contents/Applications/Nested Tool.app", isDirectory: true)
-    let executableURL = nestedBundleURL.appendingPathComponent("Contents/MacOS/Nested Tool")
+        .appendingPathComponent("Contents/Applications/Nested Helper Tool.app", isDirectory: true)
+    let executableURL = nestedBundleURL.appendingPathComponent("Contents/MacOS/Nested Helper Tool")
 
     try writeApplicationBundleInfo(
         at: parentBundleURL,
@@ -238,7 +238,7 @@ func preferredDisplayBundleUsesNestedAppWhenUIElementIsFalse() throws {
     )
     try writeApplicationBundleInfo(
         at: nestedBundleURL,
-        name: "Nested Tool",
+        name: "Nested Helper Tool",
         bundleIdentifier: "com.example.nested-tool",
         lsUIElement: false
     )
