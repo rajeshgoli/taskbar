@@ -1,11 +1,12 @@
 import AppKit
 import ApplicationServices
 import Combine
+import Darwin
 
 final class WindowManager: ObservableObject {
     @Published var windows: [WindowInfo] = []
     @Published private(set) var visibleWindows: [WindowInfo] = []
-    @Published private(set) var trayApps: [NSRunningApplication] = []
+    @Published private(set) var trayApps: [TrayApplicationInfo] = []
 
     private let accessibilityService: AccessibilityService
     private let blacklistManager: BlacklistManager
@@ -72,27 +73,32 @@ final class WindowManager: ObservableObject {
     }
 
     func refresh() {
-        let regularApplications = NSWorkspace.shared.runningApplications.filter {
+        let runningApplications = NSWorkspace.shared.runningApplications
+        let allApplicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let regularApplications = runningApplications.filter {
             $0.activationPolicy == .regular && !isBlacklisted(bundleIdentifier: $0.bundleIdentifier)
         }
         let applicationsByPID = Dictionary(uniqueKeysWithValues: regularApplications.map { ($0.processIdentifier, $0) })
-        let cgSnapshots = fetchCGWindowSnapshots(applicationsByPID: applicationsByPID)
+        let cgSnapshots = fetchCGWindowSnapshots(
+            applicationsByPID: applicationsByPID,
+            allApplicationsByPID: allApplicationsByPID
+        )
         var currentWindowOrder: [String] = []
         var seenWindowIDs = Set<String>()
 
         var nextAuthoritative: [CGWindowID: WindowInfo] = Dictionary(
             uniqueKeysWithValues: cgSnapshots.map { snapshot in
-                let application = applicationsByPID[snapshot.pid]
                 let info = WindowInfo(
                     pid: snapshot.pid,
                     cgWindowID: snapshot.id,
                     provisionalID: nil,
                     appName: snapshot.appName,
                     title: snapshot.title,
-                    icon: application?.icon,
-                    bundleIdentifier: application?.bundleIdentifier,
+                    icon: snapshot.icon,
+                    bundleIdentifier: snapshot.bundleIdentifier,
+                    applicationURL: snapshot.bundleURL,
                     isMinimized: false,
-                    isHidden: application?.isHidden ?? false,
+                    isHidden: snapshot.isHidden,
                     isProvisional: false
                 )
                 Self.appendWindowID(info.id, to: &currentWindowOrder, seenWindowIDs: &seenWindowIDs)
@@ -137,6 +143,7 @@ final class WindowManager: ObservableObject {
                     title: title,
                     icon: application.icon,
                     bundleIdentifier: application.bundleIdentifier,
+                    applicationURL: application.bundleURL,
                     isMinimized: minimized,
                     isHidden: hidden,
                     isProvisional: true
@@ -249,27 +256,28 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    func trayApplications(on screen: NSScreen) -> [NSRunningApplication] {
+    func trayApplications(on screen: NSScreen) -> [TrayApplicationInfo] {
         let displayBounds = ScreenGeometry.displayBounds(for: screen)
         let scopedWindows = windows(onDisplay: displayBounds)
         let visibleWindowPIDs = Self.visibleWindowPIDs(from: scopedWindows)
-        let runningApplications = regularRunningApplications()
-        let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let visibleWindowBundleIdentifiers = Self.visibleWindowBundleIdentifiers(from: scopedWindows)
+        let candidatesByKey = trayApplicationInfoByCandidateKey()
         let trayCandidates = Self.trayApplicationCandidates(
-            from: runningApplications.map {
+            from: candidatesByKey.values.map {
                 RunningApplicationCandidate(
-                    pid: $0.processIdentifier,
+                    pid: $0.pid,
                     bundleIdentifier: $0.bundleIdentifier,
-                    name: $0.localizedName ?? $0.bundleIdentifier ?? "Unknown"
+                    name: $0.name
                 )
             },
             visibleWindowPIDs: visibleWindowPIDs,
+            visibleWindowBundleIdentifiers: visibleWindowBundleIdentifiers,
             pinnedBundleIdentifiers: Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier)),
             blacklistedBundleIdentifiers: blacklistManager.blacklistedBundleIDs,
             currentBundleIdentifier: Bundle.main.bundleIdentifier
         )
 
-        return trayCandidates.compactMap { applicationsByPID[$0.pid] }
+        return trayCandidates.compactMap { candidatesByKey[Self.trayCandidateKey(for: $0)] }
     }
 
     func adjustWindowForTaskbar(_ element: AXUIElement) {
@@ -318,7 +326,10 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    private func fetchCGWindowSnapshots(applicationsByPID: [pid_t: NSRunningApplication]) -> [CGWindowSnapshot] {
+    private func fetchCGWindowSnapshots(
+        applicationsByPID: [pid_t: NSRunningApplication],
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> [CGWindowSnapshot] {
         guard
             let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
         else {
@@ -329,7 +340,6 @@ final class WindowManager: ObservableObject {
             guard
                 let id = entry[kCGWindowNumber as String] as? CGWindowID,
                 let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
-                let application = applicationsByPID[pid],
                 let layer = entry[kCGWindowLayer as String] as? Int,
                 let alpha = entry[kCGWindowAlpha as String] as? Double,
                 let boundsDictionary = entry[kCGWindowBounds as String] as? [String: Any],
@@ -343,23 +353,70 @@ final class WindowManager: ObservableObject {
                 layer == 0,
                 alpha > 0,
                 area >= 100,
-                application.activationPolicy == .regular,
                 ScreenGeometry.screen(for: bounds) != nil
             else {
                 return nil
             }
 
-            let appName = (entry[kCGWindowOwnerName as String] as? String) ?? application.localizedName ?? ""
+            let ownerName = (entry[kCGWindowOwnerName as String] as? String) ?? ""
+            guard let applicationInfo = cgWindowApplicationInfo(
+                pid: pid,
+                ownerName: ownerName,
+                applicationsByPID: applicationsByPID,
+                allApplicationsByPID: allApplicationsByPID
+            ) else {
+                return nil
+            }
+
             let title = (entry[kCGWindowName as String] as? String) ?? ""
 
             return CGWindowSnapshot(
                 id: id,
                 pid: pid,
-                appName: appName,
+                appName: applicationInfo.name,
                 title: title,
+                icon: applicationInfo.icon,
+                bundleIdentifier: applicationInfo.bundleIdentifier,
+                bundleURL: applicationInfo.bundleURL,
+                isHidden: applicationInfo.isHidden,
                 bounds: bounds
             )
         }
+    }
+
+    private func cgWindowApplicationInfo(
+        pid: pid_t,
+        ownerName: String,
+        applicationsByPID: [pid_t: NSRunningApplication],
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> CGWindowApplicationInfo? {
+        if let application = applicationsByPID[pid] {
+            guard !isBlacklisted(bundleIdentifier: application.bundleIdentifier) else {
+                return nil
+            }
+
+            let name = ownerName.isEmpty ? application.localizedName ?? "" : ownerName
+            return CGWindowApplicationInfo(
+                name: name,
+                icon: application.icon,
+                bundleIdentifier: application.bundleIdentifier,
+                bundleURL: application.bundleURL,
+                isHidden: application.isHidden
+            )
+        }
+
+        guard let inferredInfo = Self.inferredApplicationInfo(pid: pid, ownerName: ownerName),
+              !isBlacklisted(bundleIdentifier: inferredInfo.bundleIdentifier),
+              Self.shouldUseInferredApplicationInfo(
+                  inferredInfo,
+                  for: pid,
+                  allApplicationsByPID: allApplicationsByPID
+              )
+        else {
+            return nil
+        }
+
+        return inferredInfo
     }
 
     private func isEligibleAXWindow(_ element: AXUIElement, frame: CGRect) -> Bool {
@@ -498,6 +555,7 @@ final class WindowManager: ObservableObject {
                 title: provisionalWindow.title,
                 icon: provisionalWindow.icon,
                 bundleIdentifier: provisionalWindow.bundleIdentifier,
+                applicationURL: provisionalWindow.applicationURL,
                 isMinimized: provisionalWindow.isMinimized,
                 isHidden: provisionalWindow.isHidden,
                 isProvisional: false
@@ -532,6 +590,7 @@ final class WindowManager: ObservableObject {
             title: fallback.title.isEmpty ? (existing?.title ?? "") : fallback.title,
             icon: fallback.icon ?? existing?.icon,
             bundleIdentifier: fallback.bundleIdentifier ?? existing?.bundleIdentifier,
+            applicationURL: fallback.applicationURL ?? existing?.applicationURL,
             isMinimized: fallback.isMinimized,
             isHidden: fallback.isHidden,
             isProvisional: false
@@ -566,29 +625,30 @@ final class WindowManager: ObservableObject {
 
     private func publishDerivedState() {
         let visibleWindowPIDs = Self.visibleWindowPIDs(from: windows)
+        let visibleWindowBundleIdentifiers = Self.visibleWindowBundleIdentifiers(from: windows)
         let nextVisibleWindows = windows.filter { visibleWindowPIDs.contains($0.pid) }
         if nextVisibleWindows != visibleWindows {
             visibleWindows = nextVisibleWindows
         }
 
-        let runningApplications = regularRunningApplications()
-        let applicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let candidatesByKey = trayApplicationInfoByCandidateKey()
         let trayCandidates = Self.trayApplicationCandidates(
-            from: runningApplications.map {
+            from: candidatesByKey.values.map {
                 RunningApplicationCandidate(
-                    pid: $0.processIdentifier,
+                    pid: $0.pid,
                     bundleIdentifier: $0.bundleIdentifier,
-                    name: $0.localizedName ?? $0.bundleIdentifier ?? "Unknown"
+                    name: $0.name
                 )
             },
             visibleWindowPIDs: visibleWindowPIDs,
+            visibleWindowBundleIdentifiers: visibleWindowBundleIdentifiers,
             pinnedBundleIdentifiers: Set(pinnedAppManager.pinnedApps.map(\.bundleIdentifier)),
             blacklistedBundleIdentifiers: blacklistManager.blacklistedBundleIDs,
             currentBundleIdentifier: Bundle.main.bundleIdentifier
         )
 
-        let nextTrayApps = trayCandidates.compactMap { applicationsByPID[$0.pid] }
-        if !Self.sameRunningApplications(nextTrayApps, trayApps) {
+        let nextTrayApps = trayCandidates.compactMap { candidatesByKey[Self.trayCandidateKey(for: $0)] }
+        if nextTrayApps != trayApps {
             trayApps = nextTrayApps
         }
     }
@@ -633,6 +693,156 @@ final class WindowManager: ObservableObject {
         }
 
         return blacklistManager.isBlacklisted(bundleIdentifier: bundleIdentifier)
+    }
+
+    private static func inferredApplicationInfo(pid: pid_t, ownerName: String) -> CGWindowApplicationInfo? {
+        guard
+            let processPath = processPath(for: pid),
+            let bundleURL = preferredDisplayBundleURL(containingExecutableAt: processPath),
+            let bundle = Bundle(url: bundleURL)
+        else {
+            return nil
+        }
+
+        let bundleName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ??
+            bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String
+        let trimmedBundleName = bundleName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOwnerName = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedBundleName?.isEmpty == false ? trimmedBundleName! : trimmedOwnerName
+
+        return CGWindowApplicationInfo(
+            name: name.isEmpty ? "Unknown" : name,
+            icon: NSWorkspace.shared.icon(forFile: bundleURL.path),
+            bundleIdentifier: bundle.bundleIdentifier,
+            bundleURL: bundleURL,
+            isHidden: false
+        )
+    }
+
+    private static func shouldUseInferredApplicationInfo(
+        _ inferredInfo: CGWindowApplicationInfo,
+        for pid: pid_t,
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> Bool {
+        guard let knownApplication = allApplicationsByPID[pid] else {
+            return true
+        }
+
+        guard knownApplication.activationPolicy != .regular else {
+            return true
+        }
+
+        return knownNonregularApplicationCanUseInferredBundle(
+            knownApplicationBundleURL: knownApplication.bundleURL,
+            inferredBundleURL: inferredInfo.bundleURL
+        )
+    }
+
+    static func knownNonregularApplicationCanUseInferredBundle(
+        knownApplicationBundleURL: URL?,
+        inferredBundleURL: URL?
+    ) -> Bool {
+        guard
+            let knownApplicationBundleURL,
+            let inferredBundleURL
+        else {
+            return false
+        }
+
+        let knownPath = knownApplicationBundleURL.standardizedFileURL.path
+        let inferredPath = inferredBundleURL.standardizedFileURL.path
+        return knownPath != inferredPath && knownPath.hasPrefix(inferredPath + "/")
+    }
+
+    static func preferredDisplayBundleURL(containingExecutableAt executablePath: String) -> URL? {
+        let candidates = applicationBundleURLs(containingExecutableAt: executablePath)
+        guard let nearestBundleURL = candidates.first else {
+            return nil
+        }
+
+        if isHelperApplicationBundle(nearestBundleURL),
+           let containingApplicationURL = candidates.dropFirst().first {
+            return containingApplicationURL
+        }
+
+        return nearestBundleURL
+    }
+
+    private static func applicationBundleURLs(containingExecutableAt executablePath: String) -> [URL] {
+        var candidates: [URL] = []
+        var currentURL = URL(fileURLWithPath: executablePath).deletingLastPathComponent()
+        let rootURL = URL(fileURLWithPath: "/")
+
+        while currentURL.path != rootURL.path {
+            if isApplicationBundleDirectory(currentURL) {
+                candidates.append(currentURL)
+            }
+
+            let parentURL = currentURL.deletingLastPathComponent()
+            guard parentURL.path != currentURL.path else {
+                break
+            }
+            currentURL = parentURL
+        }
+
+        return candidates
+    }
+
+    private static func isApplicationBundleDirectory(_ url: URL) -> Bool {
+        guard
+            let bundle = Bundle(url: url),
+            let packageType = bundle.object(forInfoDictionaryKey: "CFBundlePackageType") as? String
+        else {
+            return false
+        }
+
+        return packageType == "APPL"
+    }
+
+    private static func isHelperApplicationBundle(_ url: URL) -> Bool {
+        guard let bundle = Bundle(url: url) else {
+            return false
+        }
+
+        if let lsUIElement = bundle.object(forInfoDictionaryKey: "LSUIElement") {
+            return isTruthyInfoPlistValue(lsUIElement)
+        }
+
+        let bundleName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ??
+            bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String ??
+            url.deletingPathExtension().lastPathComponent
+        return bundleName.localizedCaseInsensitiveContains("helper")
+    }
+
+    private static func isTruthyInfoPlistValue(_ value: Any) -> Bool {
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+
+        if let numberValue = value as? NSNumber {
+            return numberValue.boolValue
+        }
+
+        if let stringValue = value as? String {
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes":
+                return true
+            default:
+                return false
+            }
+        }
+
+        return false
+    }
+
+    private static func processPath(for pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else {
+            return nil
+        }
+
+        return String(cString: buffer)
     }
 
     private func hasAXFullScreenWindow(onDisplay displayBounds: CGRect) -> Bool {
@@ -693,14 +903,104 @@ final class WindowManager: ObservableObject {
         )
     }
 
+    static func visibleWindowBundleIdentifiers(from windows: [WindowInfo]) -> Set<String> {
+        Set(
+            windows.compactMap { window in
+                guard !window.isMinimized, !window.isHidden else {
+                    return nil
+                }
+
+                return window.bundleIdentifier
+            }
+        )
+    }
+
+    private func trayApplicationInfoByCandidateKey() -> [String: TrayApplicationInfo] {
+        let runningApplications = NSWorkspace.shared.runningApplications
+        let allApplicationsByPID = Dictionary(uniqueKeysWithValues: runningApplications.map { ($0.processIdentifier, $0) })
+        let regularInfos = runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .map(TrayApplicationInfo.init(application:))
+        let regularPIDs = Set(regularInfos.map(\.pid))
+        let inferredInfos = inferredTrayApplicationInfos(
+            excludingPIDs: regularPIDs,
+            allApplicationsByPID: allApplicationsByPID
+        )
+
+        return (regularInfos + inferredInfos).reduce(into: [:]) { result, info in
+            let key = Self.trayCandidateKey(pid: info.pid, bundleIdentifier: info.bundleIdentifier)
+            if let existing = result[key], existing.runningApplication != nil {
+                return
+            }
+
+            result[key] = info
+        }
+    }
+
+    private func inferredTrayApplicationInfos(
+        excludingPIDs excludedPIDs: Set<pid_t>,
+        allApplicationsByPID: [pid_t: NSRunningApplication]
+    ) -> [TrayApplicationInfo] {
+        guard
+            let windowList = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else {
+            return []
+        }
+
+        var infosByKey: [String: TrayApplicationInfo] = [:]
+        for entry in windowList {
+            guard
+                let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                !excludedPIDs.contains(pid),
+                let layer = entry[kCGWindowLayer as String] as? Int,
+                let alpha = entry[kCGWindowAlpha as String] as? Double,
+                let boundsDictionary = entry[kCGWindowBounds as String] as? [String: Any],
+                let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
+                layer == 0,
+                alpha > 0,
+                bounds.width * bounds.height >= 100,
+                let info = Self.inferredApplicationInfo(
+                    pid: pid,
+                    ownerName: (entry[kCGWindowOwnerName as String] as? String) ?? ""
+                ),
+                !isBlacklisted(bundleIdentifier: info.bundleIdentifier),
+                Self.shouldUseInferredApplicationInfo(
+                    info,
+                    for: pid,
+                    allApplicationsByPID: allApplicationsByPID
+                )
+            else {
+                continue
+            }
+
+            let trayInfo = TrayApplicationInfo(
+                pid: pid,
+                bundleIdentifier: info.bundleIdentifier,
+                name: info.name,
+                icon: info.icon,
+                bundleURL: info.bundleURL,
+                runningApplication: nil
+            )
+            let key = Self.trayCandidateKey(pid: pid, bundleIdentifier: info.bundleIdentifier)
+            infosByKey[key] = infosByKey[key] ?? trayInfo
+        }
+
+        return Array(infosByKey.values)
+    }
+
     static func trayApplicationCandidates(
         from candidates: [RunningApplicationCandidate],
         visibleWindowPIDs: Set<pid_t>,
+        visibleWindowBundleIdentifiers: Set<String> = [],
         pinnedBundleIdentifiers: Set<String>,
         blacklistedBundleIdentifiers: Set<String>,
         currentBundleIdentifier: String?
     ) -> [RunningApplicationCandidate] {
-        candidates
+        let uniqueCandidates = candidates.reduce(into: [String: RunningApplicationCandidate]()) { result, candidate in
+            result[trayCandidateKey(for: candidate)] = result[trayCandidateKey(for: candidate)] ?? candidate
+        }
+
+        return uniqueCandidates.values
             .filter { candidate in
                 guard candidate.bundleIdentifier != currentBundleIdentifier else {
                     return false
@@ -714,6 +1014,10 @@ final class WindowManager: ObservableObject {
                     return true
                 }
 
+                guard !visibleWindowBundleIdentifiers.contains(bundleIdentifier) else {
+                    return false
+                }
+
                 return !pinnedBundleIdentifiers.contains(bundleIdentifier) &&
                     !blacklistedBundleIdentifiers.contains(bundleIdentifier)
             }
@@ -723,8 +1027,20 @@ final class WindowManager: ObservableObject {
                     return nameComparison == .orderedAscending
                 }
 
-                return lhs.pid < rhs.pid
-            }
+            return lhs.pid < rhs.pid
+        }
+    }
+
+    private static func trayCandidateKey(for candidate: RunningApplicationCandidate) -> String {
+        trayCandidateKey(pid: candidate.pid, bundleIdentifier: candidate.bundleIdentifier)
+    }
+
+    private static func trayCandidateKey(pid: pid_t, bundleIdentifier: String?) -> String {
+        if let bundleIdentifier {
+            return "bundle:\(bundleIdentifier)"
+        }
+
+        return "pid:\(pid)"
     }
 
     static func reconcileStableWindowOrder(previousOrder: [String], currentOrder: [String]) -> [String] {
@@ -807,6 +1123,61 @@ private struct RunningApplicationSignature: Equatable {
     let iconSignature: ImageMetadataSignature
 }
 
+private struct CGWindowApplicationInfo {
+    let name: String
+    let icon: NSImage?
+    let bundleIdentifier: String?
+    let bundleURL: URL?
+    let isHidden: Bool
+}
+
+struct TrayApplicationInfo: Equatable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+    let name: String
+    let icon: NSImage?
+    let bundleURL: URL?
+    let runningApplication: NSRunningApplication?
+    private let iconSignature: ImageMetadataSignature
+
+    init(
+        pid: pid_t,
+        bundleIdentifier: String?,
+        name: String,
+        icon: NSImage?,
+        bundleURL: URL?,
+        runningApplication: NSRunningApplication?
+    ) {
+        self.pid = pid
+        self.bundleIdentifier = bundleIdentifier
+        self.name = name
+        self.icon = icon
+        self.bundleURL = bundleURL
+        self.runningApplication = runningApplication
+        iconSignature = ImageMetadataSignature(icon)
+    }
+
+    init(application: NSRunningApplication) {
+        self.init(
+            pid: application.processIdentifier,
+            bundleIdentifier: application.bundleIdentifier,
+            name: application.localizedName ?? application.bundleIdentifier ?? "Unknown",
+            icon: application.icon,
+            bundleURL: application.bundleURL,
+            runningApplication: application
+        )
+    }
+
+    static func == (lhs: TrayApplicationInfo, rhs: TrayApplicationInfo) -> Bool {
+        lhs.pid == rhs.pid &&
+            lhs.bundleIdentifier == rhs.bundleIdentifier &&
+            lhs.name == rhs.name &&
+            lhs.bundleURL == rhs.bundleURL &&
+            lhs.iconSignature == rhs.iconSignature &&
+            lhs.runningApplication?.processIdentifier == rhs.runningApplication?.processIdentifier
+    }
+}
+
 struct RunningApplicationCandidate: Equatable {
     let pid: pid_t
     let bundleIdentifier: String?
@@ -826,6 +1197,10 @@ private struct CGWindowSnapshot {
     let pid: pid_t
     let appName: String
     let title: String
+    let icon: NSImage?
+    let bundleIdentifier: String?
+    let bundleURL: URL?
+    let isHidden: Bool
     let bounds: CGRect
 }
 
@@ -839,6 +1214,7 @@ private extension WindowInfo {
             title: title,
             icon: icon,
             bundleIdentifier: bundleIdentifier,
+            applicationURL: applicationURL,
             isMinimized: isMinimized,
             isHidden: isHidden,
             isProvisional: false

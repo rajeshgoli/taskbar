@@ -1571,6 +1571,7 @@ final class TaskbarContentView: NSView {
         guard let application = NSWorkspace.shared.runningApplications.first(
             where: { $0.processIdentifier == windowInfo.pid }
         ) else {
+            activateOrphanWindowApplication(windowInfo)
             return
         }
 
@@ -1589,6 +1590,19 @@ final class TaskbarContentView: NSView {
             // Fallback: no AX element found, activate all windows
             application.activate(options: .activateAllWindows)
         }
+    }
+
+    private func activateOrphanWindowApplication(_ windowInfo: WindowInfo) {
+        let applicationURL = windowInfo.applicationURL ?? windowInfo.bundleIdentifier.flatMap {
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+        }
+        guard let applicationURL else {
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration)
     }
 
     private func unminimize(windowInfo: WindowInfo, application: NSRunningApplication) {

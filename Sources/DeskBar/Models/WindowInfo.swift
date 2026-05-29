@@ -8,6 +8,7 @@ struct WindowInfo: Equatable, Identifiable {
     let title: String
     let icon: NSImage?
     let bundleIdentifier: String?
+    let applicationURL: URL?
     let isMinimized: Bool
     let isHidden: Bool
     let isProvisional: Bool
@@ -21,6 +22,7 @@ struct WindowInfo: Equatable, Identifiable {
         title: String = "",
         icon: NSImage?,
         bundleIdentifier: String?,
+        applicationURL: URL? = nil,
         isMinimized: Bool = false,
         isHidden: Bool = false,
         isProvisional: Bool = false
@@ -32,6 +34,7 @@ struct WindowInfo: Equatable, Identifiable {
         self.title = title
         self.icon = icon
         self.bundleIdentifier = bundleIdentifier
+        self.applicationURL = applicationURL
         self.isMinimized = isMinimized
         self.isHidden = isHidden
         self.isProvisional = isProvisional
@@ -53,6 +56,7 @@ struct WindowInfo: Equatable, Identifiable {
             lhs.appName == rhs.appName &&
             lhs.title == rhs.title &&
             lhs.bundleIdentifier == rhs.bundleIdentifier &&
+            lhs.applicationURL == rhs.applicationURL &&
             lhs.iconSignature == rhs.iconSignature &&
             lhs.isMinimized == rhs.isMinimized &&
             lhs.isHidden == rhs.isHidden &&
