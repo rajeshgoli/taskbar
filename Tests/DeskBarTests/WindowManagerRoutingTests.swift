@@ -37,10 +37,20 @@ func windowInfoEqualityTracksTaskbarVisibleFields() {
         icon: nil,
         bundleIdentifier: "com.example.alpha"
     )
+    let movedApplication = WindowInfo(
+        pid: 11,
+        cgWindowID: 42,
+        appName: "Alpha",
+        title: "Dashboard",
+        icon: matchingIcon,
+        bundleIdentifier: "com.example.alpha",
+        applicationURL: URL(fileURLWithPath: "/Applications/Alpha.app")
+    )
 
     #expect(first == second)
     #expect(first != changedIcon)
     #expect(first != renamed)
+    #expect(first != movedApplication)
 }
 
 @Test

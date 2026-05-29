@@ -1593,10 +1593,10 @@ final class TaskbarContentView: NSView {
     }
 
     private func activateOrphanWindowApplication(_ windowInfo: WindowInfo) {
-        guard
-            let bundleIdentifier = windowInfo.bundleIdentifier,
-            let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-        else {
+        let applicationURL = windowInfo.applicationURL ?? windowInfo.bundleIdentifier.flatMap {
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+        }
+        guard let applicationURL else {
             return
         }
 

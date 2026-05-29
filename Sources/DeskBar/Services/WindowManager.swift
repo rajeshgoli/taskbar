@@ -91,6 +91,7 @@ final class WindowManager: ObservableObject {
                     title: snapshot.title,
                     icon: snapshot.icon,
                     bundleIdentifier: snapshot.bundleIdentifier,
+                    applicationURL: snapshot.bundleURL,
                     isMinimized: false,
                     isHidden: snapshot.isHidden,
                     isProvisional: false
@@ -137,6 +138,7 @@ final class WindowManager: ObservableObject {
                     title: title,
                     icon: application.icon,
                     bundleIdentifier: application.bundleIdentifier,
+                    applicationURL: application.bundleURL,
                     isMinimized: minimized,
                     isHidden: hidden,
                     isProvisional: true
@@ -366,6 +368,7 @@ final class WindowManager: ObservableObject {
                 title: title,
                 icon: applicationInfo.icon,
                 bundleIdentifier: applicationInfo.bundleIdentifier,
+                bundleURL: applicationInfo.bundleURL,
                 isHidden: applicationInfo.isHidden,
                 bounds: bounds
             )
@@ -537,6 +540,7 @@ final class WindowManager: ObservableObject {
                 title: provisionalWindow.title,
                 icon: provisionalWindow.icon,
                 bundleIdentifier: provisionalWindow.bundleIdentifier,
+                applicationURL: provisionalWindow.applicationURL,
                 isMinimized: provisionalWindow.isMinimized,
                 isHidden: provisionalWindow.isHidden,
                 isProvisional: false
@@ -571,6 +575,7 @@ final class WindowManager: ObservableObject {
             title: fallback.title.isEmpty ? (existing?.title ?? "") : fallback.title,
             icon: fallback.icon ?? existing?.icon,
             bundleIdentifier: fallback.bundleIdentifier ?? existing?.bundleIdentifier,
+            applicationURL: fallback.applicationURL ?? existing?.applicationURL,
             isMinimized: fallback.isMinimized,
             isHidden: fallback.isHidden,
             isProvisional: false
@@ -1108,6 +1113,7 @@ private struct CGWindowSnapshot {
     let title: String
     let icon: NSImage?
     let bundleIdentifier: String?
+    let bundleURL: URL?
     let isHidden: Bool
     let bounds: CGRect
 }
@@ -1122,6 +1128,7 @@ private extension WindowInfo {
             title: title,
             icon: icon,
             bundleIdentifier: bundleIdentifier,
+            applicationURL: applicationURL,
             isMinimized: isMinimized,
             isHidden: isHidden,
             isProvisional: false
