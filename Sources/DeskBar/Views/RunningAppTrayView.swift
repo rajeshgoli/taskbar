@@ -165,6 +165,7 @@ final class RunningAppTrayView: NSStackView {
                     pid: $0.pid,
                     bundleIdentifier: $0.bundleIdentifier,
                     localizedName: $0.name,
+                    hasRunningApplication: $0.runningApplication != nil,
                     iconSignature: ImageMetadataSignature($0.icon)
                 )
             },
@@ -251,6 +252,7 @@ private struct ContentSignature: Equatable {
         let pid: pid_t
         let bundleIdentifier: String?
         let localizedName: String?
+        let hasRunningApplication: Bool
         let iconSignature: ImageMetadataSignature
     }
 
