@@ -221,6 +221,38 @@ func preferredDisplayBundleUsesNearestRegularAppBundle() throws {
 }
 
 @Test
+func preferredDisplayBundleUsesNestedAppWhenUIElementIsFalse() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("DeskBarTests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let parentBundleURL = rootURL.appendingPathComponent("Parent.app", isDirectory: true)
+    let nestedBundleURL = parentBundleURL
+        .appendingPathComponent("Contents/Applications/Nested Tool.app", isDirectory: true)
+    let executableURL = nestedBundleURL.appendingPathComponent("Contents/MacOS/Nested Tool")
+
+    try writeApplicationBundleInfo(
+        at: parentBundleURL,
+        name: "Parent",
+        bundleIdentifier: "com.example.parent"
+    )
+    try writeApplicationBundleInfo(
+        at: nestedBundleURL,
+        name: "Nested Tool",
+        bundleIdentifier: "com.example.nested-tool",
+        lsUIElement: false
+    )
+    try FileManager.default.createDirectory(
+        at: executableURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+
+    let result = WindowManager.preferredDisplayBundleURL(containingExecutableAt: executableURL.path)
+
+    #expect(result?.standardizedFileURL == nestedBundleURL.standardizedFileURL)
+}
+
+@Test
 func stableWindowOrderKeepsExistingPositionsAndAppendsNewWindowsToTheEnd() {
     let result = WindowManager.reconcileStableWindowOrder(
         previousOrder: ["window:alpha", "window:beta", "window:gamma"],
@@ -244,7 +276,8 @@ private func writeApplicationBundleInfo(
     at bundleURL: URL,
     name: String,
     bundleIdentifier: String,
-    isUIElement: Bool = false
+    isUIElement: Bool = false,
+    lsUIElement: Any? = nil
 ) throws {
     let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
     try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
@@ -256,6 +289,8 @@ private func writeApplicationBundleInfo(
     ]
     if isUIElement {
         info["LSUIElement"] = "1"
+    } else if let lsUIElement {
+        info["LSUIElement"] = lsUIElement
     }
 
     let plistData = try PropertyListSerialization.data(

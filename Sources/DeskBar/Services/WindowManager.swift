@@ -754,7 +754,8 @@ final class WindowManager: ObservableObject {
             return false
         }
 
-        if bundle.object(forInfoDictionaryKey: "LSUIElement") != nil {
+        if let lsUIElement = bundle.object(forInfoDictionaryKey: "LSUIElement"),
+           isTruthyInfoPlistValue(lsUIElement) {
             return true
         }
 
@@ -762,6 +763,27 @@ final class WindowManager: ObservableObject {
             bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String ??
             url.deletingPathExtension().lastPathComponent
         return bundleName.localizedCaseInsensitiveContains("helper")
+    }
+
+    private static func isTruthyInfoPlistValue(_ value: Any) -> Bool {
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+
+        if let numberValue = value as? NSNumber {
+            return numberValue.boolValue
+        }
+
+        if let stringValue = value as? String {
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes":
+                return true
+            default:
+                return false
+            }
+        }
+
+        return false
     }
 
     private static func processPath(for pid: pid_t) -> String? {
